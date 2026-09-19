@@ -13,13 +13,50 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check out trusted tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+          # Read-only token retained only long enough to fetch immutable PR objects.
+          persist-credentials: true
+      - name: Fetch PR objects without checking them out
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+          if [ "$(git rev-parse FETCH_HEAD)" != "$PR_HEAD_SHA" ]; then
+            echo 'PR changed during fetch. Checks unavailable; rerun this workflow.'
+            exit 2
+          fi
+      - name: Remove checkout credentials
+        if: ${{ always() }}
+        run: git config --local --unset-all http.https://github.com/.extraheader || true
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
           package-manager-cache: false
-      - run: npm ci --ignore-scripts
-      - run: npm run typecheck
-      - run: npm test
+      - name: Install and preflight Bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --unshare-user --unshare-pid --disable-userns -- /bin/true
+      - name: Install trusted typecheck tools
+        run: |
+          TYPESCRIPT_VERSION="$(node -p "require('./package.json').devDependencies.typescript")"
+          NODE_TYPES_VERSION="$(node -p "require('./package.json').devDependencies['@types/node']")"
+          npm install --global --ignore-scripts "typescript@$TYPESCRIPT_VERSION" "@types/node@$NODE_TYPES_VERSION"
+          echo "TYPE_ROOTS=$(npm root --global)/@types" >> "$GITHUB_ENV"
+      - name: Sandbox PR typecheck
+        env:
+          CHECK_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node src/assertlens.ts --head "$CHECK_HEAD_SHA" --check-only -- tsc --noEmit --typeRoots "$TYPE_ROOTS"
+      - name: Sandbox PR tests
+        env:
+          CHECK_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node src/assertlens.ts --head "$CHECK_HEAD_SHA" --check-only -- npm test

@@ -16,14 +16,14 @@ jobs:
   review:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out trusted base tooling and policy
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
-          # Read-only token retained for the following fetch; no PR code executes.
+          # Read-only token retained only long enough to fetch immutable PR objects.
           persist-credentials: true
       - name: Fetch PR objects without checking them out
         env:
@@ -35,14 +35,25 @@ jobs:
             echo 'PR changed during fetch. Review unavailable; rerun this workflow.' >> "$GITHUB_STEP_SUMMARY"
             exit 2
           fi
+      - name: Remove checkout credentials
+        if: ${{ always() }}
+        run: git config --local --unset-all http.https://github.com/.extraheader || true
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
           package-manager-cache: false
-      - name: Review immutable PR source as data
+      - name: Install and preflight Bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --unshare-user --unshare-pid --disable-userns -- /bin/true
+      - name: Sandbox tests and review immutable PR source
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          node src/assertlens.ts --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+          node src/assertlens.ts --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" -- npm test >> "$GITHUB_STEP_SUMMARY"

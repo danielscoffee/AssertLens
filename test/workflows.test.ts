@@ -11,30 +11,66 @@ const review = readFileSync(
 	"utf8",
 );
 
-test("PR execution has no secrets; trusted review never executes PR code", () => {
+const immutableFetch =
+	/git fetch --no-tags origin "refs\/pull\/\$PR_NUMBER\/head"[\s\S]*"\$\(git rev-parse FETCH_HEAD\)" != "\$PR_HEAD_SHA"/;
+const removeCredentials =
+	/git config --local --unset-all http\.https:\/\/github\.com\/\.extraheader \|\| true/;
+
+function assertSandboxSetup(workflow: string): void {
+	assert.match(workflow, /apt-get install --yes bubblewrap/);
+	assert.match(workflow, /kernel\.apparmor_restrict_unprivileged_userns=0/);
+	assert.match(
+		workflow,
+		/bwrap --ro-bind \/ \/ --unshare-user --unshare-pid --disable-userns -- \/bin\/true/,
+	);
+}
+
+test("CI executes immutable PR source only through trusted sandbox tooling", () => {
 	assert.match(ci, /\n {2}pull_request:/);
-	assert.doesNotMatch(ci, /secrets\./);
-	assert.match(ci, /persist-credentials: false/);
-	assert.match(ci, /run: npm run typecheck/);
-	assert.match(ci, /run: npm test/);
+	assert.doesNotMatch(ci, /pull_request_target|workflow_run|secrets\./);
+	assert.match(
+		ci,
+		/ref: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.sha \}\}/,
+	);
+	assert.match(ci, /fetch-depth: 0/);
+	assert.match(ci, /persist-credentials: true/);
+	assert.match(ci, immutableFetch);
+	assert.match(ci, removeCredentials);
+	assertSandboxSetup(ci);
+	assert.match(
+		ci,
+		/npm install --global --ignore-scripts "typescript@\$TYPESCRIPT_VERSION" "@types\/node@\$NODE_TYPES_VERSION"/,
+	);
+	assert.match(
+		ci,
+		/node src\/assertlens\.ts --head "\$CHECK_HEAD_SHA" --check-only -- tsc --noEmit --typeRoots "\$TYPE_ROOTS"/,
+	);
+	assert.match(
+		ci,
+		/node src\/assertlens\.ts --head "\$CHECK_HEAD_SHA" --check-only -- npm test/,
+	);
+	assert.doesNotMatch(ci, /run: npm (ci|run typecheck|test)/);
+	assert.doesNotMatch(ci, /git (checkout|switch)|download-artifact|actions\/cache/);
+	assert.ok(ci.indexOf("Remove checkout credentials") < ci.indexOf("Sandbox PR typecheck"));
+});
+
+test("trusted Jev review sandboxes PR tests and scopes its secret to final step", () => {
 	assert.match(review, /\n {2}pull_request:/);
 	assert.doesNotMatch(review, /pull_request_target|workflow_run/);
 	assert.match(
 		review,
 		/ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/,
 	);
+	assert.match(review, immutableFetch);
+	assert.match(review, removeCredentials);
+	assertSandboxSetup(review);
 	assert.match(
 		review,
-		/git fetch --no-tags origin "refs\/pull\/\$PR_NUMBER\/head"/,
-	);
-	assert.match(review, /"\$\(git rev-parse FETCH_HEAD\)" != "\$PR_HEAD_SHA"/);
-	assert.match(
-		review,
-		/node src\/assertlens\.ts --base "\$PR_BASE_SHA" --head "\$PR_HEAD_SHA"/,
+		/node src\/assertlens\.ts --base "\$PR_BASE_SHA" --head "\$PR_HEAD_SHA" -- npm test/,
 	);
 	assert.doesNotMatch(
 		review,
-		/git (checkout|switch)|npm (ci|install|test)|download-artifact|actions\/cache/,
+		/git (checkout|switch)|npm (ci|install)|download-artifact|actions\/cache/,
 	);
 	assert.equal(
 		(
@@ -43,6 +79,10 @@ test("PR execution has no secrets; trusted review never executes PR code", () =>
 			) ?? []
 		).length,
 		1,
+	);
+	assert.ok(
+		review.indexOf("Remove checkout credentials") <
+			review.indexOf("Sandbox tests and review immutable PR source"),
 	);
 });
 
