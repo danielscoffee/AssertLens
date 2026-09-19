@@ -93,6 +93,14 @@ test("host Git ignores PATH helpers and receives scrubbed config and environment
 
 test("host Bubblewrap ignores attacker-writable PATH entries or fails closed", (t) => {
 	const fake = fakeExecutable(t, "bwrap");
+	const path = `${fake.root}:${process.env.PATH ?? ""}`;
+	let trusted: string | undefined;
+	try {
+		trusted = resolveTrustedExecutable("bwrap", path);
+		assert.notEqual(trusted, fake.executable);
+	} catch {
+		trusted = undefined;
+	}
 	const workspace = mkdtempSync(join(tmpdir(), "assertlens-trusted-bwrap-"));
 	t.after(() => rmSync(workspace, { recursive: true, force: true }));
 	const result = createBubblewrapRunner(nodeProcess).run({
@@ -101,7 +109,7 @@ test("host Bubblewrap ignores attacker-writable PATH entries or fails closed", (
 		cwd: workspace,
 		env: {
 			...process.env,
-			PATH: `${fake.root}:${process.env.PATH ?? ""}`,
+			PATH: path,
 			TYPESAFE_API_KEY: "secret",
 			GITHUB_TOKEN: "secret",
 		},
@@ -109,6 +117,8 @@ test("host Bubblewrap ignores attacker-writable PATH entries or fails closed", (
 		timeout: 5_000,
 	});
 	assert.equal(existsSync(fake.marker), false);
-	if (result.status !== 0)
+	if (trusted === undefined)
 		assert.match(result.error?.message ?? "", /trusted.*bwrap|Bubblewrap/i);
+	else
+		assert.equal(result.error, undefined);
 });
