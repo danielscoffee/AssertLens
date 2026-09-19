@@ -8,6 +8,7 @@
     "src/git/cli.ts",
     "src/git/git.ts",
     "src/git/state.ts",
+    "src/git/workspace.ts",
     "src/jev/http.ts",
     "src/jev/jev.ts",
     "src/jev/request.ts",

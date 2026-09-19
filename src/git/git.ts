@@ -9,7 +9,22 @@ export type State = {
 	files: { path: string; before: string | null; after: string | null }[];
 };
 
-export type GitCommand = (repo: string, ...args: string[]) => Buffer;
+export type Workspace = {
+	path: string;
+	dispose(): void;
+};
+
+export type GitCommand = (
+	repo: string,
+	args: string[],
+	maxBuffer?: number,
+) => Buffer;
+
+export type GitBlobWriter = (
+	repo: string,
+	objectId: string,
+	destination: string,
+) => void;
 
 export type GitPort = {
 	repositoryRoot(path: string): string;
@@ -20,4 +35,5 @@ export type GitPort = {
 		headRef?: string,
 		snapshot?: boolean,
 	): State;
+	createWorkspace(repo: string, headRef?: string): Workspace;
 };

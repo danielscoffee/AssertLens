@@ -7,6 +7,7 @@ export type ProcessRequest = {
 	env?: NodeJS.ProcessEnv;
 	timeout: number;
 	output: "capture" | "inherit";
+	stdoutFd?: number;
 	maxBuffer?: number;
 	killSignal?: NodeJS.Signals;
 };
@@ -34,7 +35,7 @@ export const nodeProcess: ProcessPort = {
 			stdio:
 				request.output === "inherit"
 					? ["ignore", 2, 2]
-					: ["ignore", "pipe", "pipe"],
+					: ["ignore", request.stdoutFd ?? "pipe", "pipe"],
 			timeout: request.timeout,
 		});
 		return {
