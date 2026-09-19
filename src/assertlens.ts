@@ -1,40 +1,52 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { loadConfig } from "./config/config.ts";
-import { collectState, repositoryRoot } from "./git/cli.ts";
-import { review } from "./jev/http.ts";
-import { makeRequest } from "./jev/request.ts";
+import { runReview } from "./application/review.ts";
+import { createDirectRunner } from "./check/direct.ts";
+import { cliGit } from "./git/cli.ts";
+import { httpJev } from "./jev/http.ts";
 import { renderReport, type Report } from "./report/report.ts";
+import { createBubblewrapRunner } from "./sandbox/bubblewrap.ts";
+import { nodeProcess } from "./shared/process.ts";
 
 export { review } from "./jev/http.ts";
 export { makeRequest } from "./jev/request.ts";
 export { renderReport } from "./report/report.ts";
 
 const HELP = `AssertLens — local checks + advisory Jev review (Node 24.12+)\n
-Usage: node src/assertlens.ts [options] [-- trusted-command args...]\n
-  --repo PATH       Repository to review (default: current directory)
-  --config PATH     Config relative to repository root (default: .assertlens.json)
-  --base REF        Compare against this commit (default: HEAD)
-  --head REF        Review committed Git data, not working tree; no commands allowed
-  --snapshot        Allow review even when selected files match the base
-  --dry-run         Print outbound JSON; no API call or command execution
-  --json            Emit machine-readable report instead of Markdown
-  --help            Show this help\n
+Usage: node src/assertlens.ts [options] [-- command args...]\n
+  --repo PATH         Repository to review (default: current directory)
+  --config PATH       Config relative to repository root (default: .assertlens.json)
+  --base REF          Compare against this commit (default: HEAD)
+  --head REF          Review committed Git data; commands run in its sandboxed tree
+  --snapshot          Allow review even when selected files match the base
+  --sandbox-network   Allow network access inside the command sandbox
+  --no-sandbox        Run a trusted local command directly (incompatible with --head)
+  --dry-run           Print outbound JSON; no API call or command execution
+  --json              Emit machine-readable report instead of Markdown
+  --help              Show this help\n
+Commands use Bubblewrap by default. Only Git-visible files enter the writable sandbox.
 Only explicitly selected files are sent to TypeSafe. Inspect --dry-run first.
 Exit 0: completed advisory review/help/dry-run; 1: failed check; 2: unavailable review.
 `;
 
-export async function main(args = process.argv.slice(2)): Promise<number> {
-	const report: Report = {
+function unavailable(error: unknown): Report {
+	return {
 		mode: "advisory",
 		checks: "not_run",
-		review: "not_run",
+		review: "unavailable",
 		findings: [],
+		error: error instanceof Error ? error.message : "Unexpected review failure.",
 	};
+}
+
+function output(report: Report, json: boolean): void {
+	process.stdout.write(
+		json ? `${JSON.stringify(report, null, 2)}\n` : renderReport(report),
+	);
+}
+
+export async function main(args = process.argv.slice(2)): Promise<number> {
 	let json = args.includes("--json");
-	let exitCode = 2;
 	try {
 		const { values, positionals } = parseArgs({
 			args,
@@ -45,6 +57,8 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 				base: { type: "string", default: "HEAD" },
 				head: { type: "string" },
 				snapshot: { type: "boolean" },
+				"sandbox-network": { type: "boolean" },
+				"no-sandbox": { type: "boolean" },
 				"dry-run": { type: "boolean" },
 				json: { type: "boolean" },
 				help: { type: "boolean" },
@@ -55,81 +69,57 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 			process.stdout.write(HELP);
 			return 0;
 		}
-		if (positionals.length && (values.head || values["dry-run"]))
-			throw new Error("Commands cannot be combined with --head or --dry-run.");
-		const repo = repositoryRoot(values.repo);
-		const config = loadConfig(resolve(repo, values.config));
-		const state = collectState(
-			repo,
-			config,
-			values.base,
-			values.head,
-			values.snapshot,
+		const command = positionals.length
+			? (positionals as [string, ...string[]])
+			: undefined;
+		const sandboxed = !(values["no-sandbox"] ?? false);
+		const network = values["sandbox-network"] ?? false;
+		if (command && values["dry-run"])
+			throw new Error("Commands cannot be combined with --dry-run.");
+		if (network && (!command || !sandboxed))
+			throw new Error(
+				"--sandbox-network requires a sandboxed command.",
+			);
+		if (command && values.head && !sandboxed)
+			throw new Error("--head commands require the sandbox.");
+		if (command && !sandboxed)
+			process.stderr.write(
+				"Warning: command is not sandboxed; run only trusted local code.\n",
+			);
+		const result = await runReview(
+			{
+				git: cliGit,
+				checkRunner: sandboxed
+					? createBubblewrapRunner(nodeProcess)
+					: createDirectRunner(nodeProcess),
+				reviewClient: httpJev,
+				env: process.env,
+			},
+			{
+				repo: values.repo,
+				config: values.config,
+				base: values.base,
+				head: values.head,
+				snapshot: values.snapshot ?? false,
+				dryRun: values["dry-run"] ?? false,
+				sandboxed,
+				network,
+				command,
+			},
 		);
-		Object.assign(report, {
-			base: state.base,
-			head: state.head,
-			scope: config.files,
-			assertions: config.assertions,
-		});
-		if (values["dry-run"]) {
+		if (result.kind === "dry-run") {
 			process.stderr.write(
 				"Dry-run only: no checks executed and no data sent.\n",
 			);
-			process.stdout.write(
-				`${JSON.stringify(makeRequest(config, state), null, 2)}\n`,
-			);
-			return 0;
+			process.stdout.write(`${JSON.stringify(result.request, null, 2)}\n`);
+			return result.exitCode;
 		}
-		if (positionals.length) {
-			const env = { ...process.env };
-			for (const key of ["TYPESAFE_API_KEY", "GITHUB_TOKEN", "GH_TOKEN"])
-				delete env[key];
-			const check = spawnSync(positionals[0], positionals.slice(1), {
-				cwd: repo,
-				env,
-				shell: false,
-				timeout: 120_000,
-				stdio: ["ignore", 2, 2],
-				// Logs go to stderr so stdout remains a single parseable report.
-			});
-			report.checkExitCode = check.status;
-			report.checks = check.error || check.status !== 0 ? "failed" : "passed";
-			if (report.checks === "failed") {
-				process.stdout.write(
-					json ? `${JSON.stringify(report, null, 2)}\n` : renderReport(report),
-				);
-				return 1;
-			}
-			if (
-				JSON.stringify(
-					collectState(repo, config, values.base, values.head, values.snapshot),
-				) !== JSON.stringify(state)
-			) {
-				throw new Error(
-					"Selected files changed during checks; rerun against a stable snapshot.",
-				);
-			}
-			state.checks = report.checks;
-		}
-		Object.assign(
-			report,
-			await review(
-				makeRequest(config, state),
-				process.env.TYPESAFE_API_KEY ?? "",
-			),
-			{ review: "complete" },
-		);
-		exitCode = 0;
+		output(result.report, json);
+		return result.exitCode;
 	} catch (error) {
-		report.review = "unavailable";
-		report.error =
-			error instanceof Error ? error.message : "Unexpected review failure.";
+		output(unavailable(error), json);
+		return 2;
 	}
-	process.stdout.write(
-		json ? `${JSON.stringify(report, null, 2)}\n` : renderReport(report),
-	);
-	return exitCode;
 }
 
 if (import.meta.main) process.exitCode = await main();

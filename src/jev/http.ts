@@ -1,5 +1,9 @@
 import { bounded, MAX_BYTES } from "../shared/validation.ts";
-import type { ReviewRequest, ReviewResult } from "./jev.ts";
+import type {
+	ReviewClient,
+	ReviewRequest,
+	ReviewResult,
+} from "./jev.ts";
 import { parseResponse } from "./response.ts";
 
 export async function review(
@@ -57,3 +61,5 @@ export async function review(
 	}
 	return parseResponse(raw, request);
 }
+
+export const httpJev: ReviewClient = { review };

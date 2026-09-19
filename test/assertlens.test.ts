@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+	chmodSync,
+	existsSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -21,6 +23,38 @@ const config = {
 	files: ["sample.ts"],
 	assertions: { age_boundary: "An 18-year-old is eligible." },
 };
+
+function fakeBubblewrap(t: TestContext): NodeJS.ProcessEnv {
+	const root = mkdtempSync(join(tmpdir(), "assertlens-fake-bwrap-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const executable = join(root, "bwrap");
+	writeFileSync(
+		executable,
+		`#!${process.execPath}\n` +
+			`const { spawnSync } = require("node:child_process");\n` +
+			`const args = process.argv.slice(2);\n` +
+			`const separator = args.lastIndexOf("--");\n` +
+			`const bind = args.findIndex((value, index) => value === "--bind" && args[index + 2] === "/workspace");\n` +
+			`const env = {};\n` +
+			`for (let index = 0; index < separator; index++) if (args[index] === "--setenv") env[args[index + 1]] = args[index + 2];\n` +
+			`const result = spawnSync(args[separator + 1], args.slice(separator + 2), { cwd: args[bind + 1], env, stdio: "inherit" });\n` +
+			`if (result.error) { console.error(result.error.message); process.exit(127); }\n` +
+			`process.exit(result.status ?? 1);\n`,
+	);
+	chmodSync(executable, 0o755);
+	return { PATH: `${root}:${process.env.PATH ?? ""}` };
+}
+
+function withoutBubblewrap(t: TestContext): NodeJS.ProcessEnv {
+	const root = mkdtempSync(join(tmpdir(), "assertlens-no-bwrap-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const gitDirectory = (process.env.PATH ?? "")
+		.split(":")
+		.find((path) => existsSync(join(path, "git")));
+	assert.ok(gitDirectory, "git must be available for CLI tests");
+	symlinkSync(join(gitDirectory, "git"), join(root, "git"));
+	return { PATH: root };
+}
 
 function fixture(t: TestContext) {
 	const repo = mkdtempSync(join(tmpdir(), "assertlens-test-"));
@@ -49,7 +83,7 @@ function fixture(t: TestContext) {
 	git("add", ".");
 	git("commit", "-qm", "Initial sample");
 	write("sample.ts", changed);
-	const run = (...args: string[]) =>
+	const runWithEnv = (env: NodeJS.ProcessEnv, ...args: string[]) =>
 		spawnSync(process.execPath, [cliPath, "--repo", repo, ...args], {
 			encoding: "utf8",
 			timeout: 15_000,
@@ -58,9 +92,11 @@ function fixture(t: TestContext) {
 				TYPESAFE_API_KEY: "",
 				GITHUB_TOKEN: "",
 				GH_TOKEN: "",
+				...env,
 			},
 		});
-	return { repo, git, write, run };
+	const run = (...args: string[]) => runWithEnv({}, ...args);
+	return { repo, git, write, run, runWithEnv };
 }
 
 test("dry-run captures before/after source without credentials or execution", (t) => {
@@ -94,12 +130,13 @@ test("snapshot dry-run reviews unchanged files without relaxing the default", (t
 	assert.equal(request.state.checks, "not_run");
 });
 
-test("committed snapshot ignores local edits and still forbids commands", (t) => {
-	const { run } = fixture(t);
+test("committed snapshot runs sandboxed commands against committed source", (t) => {
+	const { run, runWithEnv } = fixture(t);
 	const result = run("--snapshot", "--head", "HEAD", "--dry-run");
 	assert.equal(result.status, 0, result.stderr);
 	assert.equal(JSON.parse(result.stdout).state.files[0].after, original);
-	const command = run(
+	const command = runWithEnv(
+		fakeBubblewrap(t),
 		"--snapshot",
 		"--head",
 		"HEAD",
@@ -107,10 +144,12 @@ test("committed snapshot ignores local edits and still forbids commands", (t) =>
 		"--",
 		process.execPath,
 		"-e",
-		"process.exit(0)",
+		`process.exit(require("node:fs").readFileSync("sample.ts", "utf8") === ${JSON.stringify(original)} ? 0 : 9)`,
 	);
-	assert.equal(command.status, 2);
-	assert.match(JSON.parse(command.stdout).error, /command/i);
+	assert.equal(command.status, 2, command.stderr);
+	const report = JSON.parse(command.stdout);
+	assert.equal(report.checks, "passed");
+	assert.match(report.error, /TYPESAFE_API_KEY/);
 });
 
 test("snapshot mode preserves executable check and missing-key failures", (t) => {
@@ -118,6 +157,7 @@ test("snapshot mode preserves executable check and missing-key failures", (t) =>
 	write("sample.ts", original);
 	const failed = run(
 		"--snapshot",
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -129,6 +169,7 @@ test("snapshot mode preserves executable check and missing-key failures", (t) =>
 	assert.equal(JSON.parse(failed.stdout).review, "not_run");
 	const passed = run(
 		"--snapshot",
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -147,6 +188,7 @@ test("snapshot mode rejects source changes made during checks", (t) => {
 	write("sample.ts", original);
 	const result = run(
 		"--snapshot",
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -198,6 +240,7 @@ test("committed-head review ignores dirty local source and uses merge base", (t)
 test("a failed executable check remains failed and skips Jev", (t) => {
 	const { run } = fixture(t);
 	const result = run(
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -215,8 +258,16 @@ test("a failed executable check remains failed and skips Jev", (t) => {
 
 test("successful local check cannot mask missing API credentials", (t) => {
 	const { run } = fixture(t);
-	const result = run("--json", "--", process.execPath, "-e", "process.exit(0)");
+	const result = run(
+		"--no-sandbox",
+		"--json",
+		"--",
+		process.execPath,
+		"-e",
+		"process.exit(0)",
+	);
 	assert.equal(result.status, 2, result.stderr);
+	assert.match(result.stderr, /not sandboxed|unsafe/i);
 	const report = JSON.parse(result.stdout);
 	assert.equal(report.checks, "passed");
 	assert.equal(report.review, "unavailable");
@@ -226,6 +277,7 @@ test("successful local check cannot mask missing API credentials", (t) => {
 test("changes made during checks invalidate their evidence", (t) => {
 	const { run } = fixture(t);
 	const result = run(
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -236,9 +288,62 @@ test("changes made during checks invalidate their evidence", (t) => {
 	assert.match(JSON.parse(result.stdout).error, /changed during/i);
 });
 
-test("head review and dry-run never execute a supplied command", (t) => {
+test("sandboxed checks mutate only their disposable workspace", (t) => {
+	const { repo, runWithEnv } = fixture(t);
+	const result = runWithEnv(
+		fakeBubblewrap(t),
+		"--json",
+		"--",
+		process.execPath,
+		"-e",
+		'require("node:fs").writeFileSync("sample.ts", "sandbox mutation")',
+	);
+	assert.equal(result.status, 2, result.stderr);
+	const report = JSON.parse(result.stdout);
+	assert.equal(report.checks, "passed");
+	assert.match(report.error, /TYPESAFE_API_KEY/);
+	assert.equal(readFileSync(join(repo, "sample.ts"), "utf8"), changed);
+});
+
+test("missing Bubblewrap fails the check without calling Jev", (t) => {
+	const { runWithEnv } = fixture(t);
+	const result = runWithEnv(
+		withoutBubblewrap(t),
+		"--json",
+		"--",
+		process.execPath,
+		"-e",
+		"process.exit(0)",
+	);
+	assert.equal(result.status, 1, result.stderr);
+	const report = JSON.parse(result.stdout);
+	assert.equal(report.checks, "failed");
+	assert.equal(report.review, "not_run");
+	assert.match(report.error, /bwrap|ENOENT/i);
+});
+
+test("sandbox flags reject unsafe or meaningless combinations", (t) => {
 	const { run } = fixture(t);
-	for (const args of [["--head", "HEAD"], ["--dry-run"]]) {
+	for (const args of [
+		["--sandbox-network"],
+		[
+			"--sandbox-network",
+			"--no-sandbox",
+			"--",
+			process.execPath,
+			"-e",
+			"process.exit(0)",
+		],
+	]) {
+		const result = run("--json", ...args);
+		assert.equal(result.status, 2, result.stderr);
+		assert.match(JSON.parse(result.stdout).error, /sandbox|command/i);
+	}
+});
+
+test("dry-run and direct head mode never execute a supplied command", (t) => {
+	const { run } = fixture(t);
+	for (const args of [["--head", "HEAD", "--no-sandbox"], ["--dry-run"]]) {
 		const result = run(
 			"--json",
 			...args,
@@ -248,7 +353,7 @@ test("head review and dry-run never execute a supplied command", (t) => {
 			"process.exit(19)",
 		);
 		assert.equal(result.status, 2, result.stderr);
-		assert.match(JSON.parse(result.stdout).error, /command/i);
+		assert.match(JSON.parse(result.stdout).error, /command|sandbox/i);
 	}
 });
 
@@ -485,9 +590,11 @@ test("complete CLI review remains advisory and strips service tokens from local 
 	const fetch = t.mock.method(globalThis, "fetch", async () =>
 		Response.json(answer("contradicted")),
 	);
+	t.mock.method(process.stderr, "write", () => true);
 	const exit = await main([
 		"--repo",
 		repo,
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
