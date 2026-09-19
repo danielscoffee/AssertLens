@@ -6,7 +6,7 @@ description: Compare working files or committed Git objects and interpret Assert
 Run from the AssertLens repository root:
 
 ```bash
-node src/assertlens.ts [options] [-- trusted-command args...]
+node src/assertlens.ts [options] [-- command args...]
 ```
 
 ## Options
@@ -16,8 +16,11 @@ node src/assertlens.ts [options] [-- trusted-command args...]
 | `--repo PATH` | Repository to review; defaults to the current directory. |
 | `--config PATH` | Configuration path relative to the target repository root; defaults to `.assertlens.json`. |
 | `--base REF` | Base commit reference; defaults to `HEAD`. |
-| `--head REF` | Read committed Git data instead of working files; compare against the merge base. Refuses commands. |
+| `--head REF` | Read committed Git data instead of working files; sandboxed commands run against that exact tree. |
 | `--snapshot` | Allow review even when selected files match the base. |
+| `--check-only` | Run the command without loading review configuration or calling Jev. |
+| `--sandbox-network` | Share host networking with a sandboxed command; disabled by default. |
+| `--no-sandbox` | Run a trusted local command directly; incompatible with `--head`. |
 | `--dry-run` | Print outbound JSON without an API call or command execution. Refuses commands. |
 | `--json` | Emit a machine-readable report instead of Markdown. |
 | `--help` | Show usage and options. |
@@ -35,7 +38,7 @@ is not a staged-only review. Changes that exist only in the index are not review
 # Inspect the payload before sending source.
 node src/assertlens.ts --base HEAD --dry-run
 
-# Run a trusted check before the advisory review.
+# Run a sandboxed check before the advisory review.
 node src/assertlens.ts --base HEAD -- npm test
 ```
 
@@ -57,31 +60,47 @@ and size limits.
 
 ## Committed-source review
 
-Use `--head` to inspect Git objects without checking out or executing their source:
+Use `--head` to inspect Git objects without checking them out on the host:
 
 ```bash
 node src/assertlens.ts --base origin/main --head HEAD --dry-run
 node src/assertlens.ts --base origin/main --head HEAD --json
+node src/assertlens.ts --base origin/main --head HEAD -- npm test
 ```
 
 This mode uses the merge base of `--base` and `--head` as the before revision.
-Working-tree changes are not included. Keep both the CLI and its configuration
-trusted when reviewing another repository.
+Working-tree changes are not included. A command runs against a disposable copy of
+the exact committed tree. Keep the CLI and configuration trusted when reviewing
+another repository.
 
 ## Executable checks
 
-`--` separates the executable command and its arguments. The command runs in the
-target repository root, directly rather than through a shell, with a two-minute
-timeout. Shell operators such as pipes and `&&` are not interpreted.
+`--` separates the executable command and its arguments. By default, AssertLens
+creates a writable disposable workspace containing only Git-visible files, then runs
+the command without a shell inside Bubblewrap. Local mode includes tracked and
+unignored working files; `--head` materializes the exact committed tree. `.git`,
+ignored files, and host dependency directories are absent. The timeout is two minutes.
+Shell operators such as pipes and `&&` are not interpreted.
 
-Check output goes to stderr. Stdout contains one Markdown or JSON report, or the
-JSON payload for a dry run. No command means `checks: not_run`, not passed.
+Network is disabled by default. `--sandbox-network` explicitly retains host
+networking for commands that need it. Check output goes to stderr. Stdout contains
+one Markdown or JSON report, or the JSON payload for a dry run. No command means
+`checks: not_run`, not passed.
 
 A failed, timed-out, or unstartable check exits `1` without calling Jev. If selected
-source changes during a successful check, review is unavailable rather than
-sending a stale snapshot. `--head` and `--dry-run` reject commands.
+host source changes during a successful check, review is unavailable rather than
+sending a stale snapshot. `--dry-run` rejects commands.
 
-Local checks are not sandboxed; see [Security & limits](security-and-limits.md).
+Use check-only mode for CI or isolated execution without configuration or Jev:
+
+```bash
+node src/assertlens.ts --head HEAD --check-only -- npm test
+```
+
+`--check-only` writes status to stderr and returns `0`, `1`, or `2`; it cannot be
+combined with `--json` or `--dry-run`. `--no-sandbox` instead runs trusted local code
+in the original repository, prints a warning, and cannot be combined with `--head`.
+See [Security & limits](security-and-limits.md).
 
 ## Reports and exit codes
 

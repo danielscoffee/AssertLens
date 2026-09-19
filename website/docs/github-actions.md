@@ -7,18 +7,29 @@ The repository includes two workflows with separate responsibilities.
 
 | Workflow | Responsibility |
 | --- | --- |
-| `CI` (`.github/workflows/ci.yml`) | Typecheck and test the PR merge checkout; also run on pushes to `main`. |
-| `Jev advisory review` (`.github/workflows/jev-review.yml`) | Review committed PR source as data using trusted base-branch tooling and policy. |
+| `CI` (`.github/workflows/ci.yml`) | Use trusted base tooling to typecheck and test an immutable PR tree in Bubblewrap; also run on pushes to `main`. |
+| `Jev advisory review` (`.github/workflows/jev-review.yml`) | Run sandboxed tests, then review committed PR source with trusted base policy and a narrowly scoped TypeSafe key. |
 
 ## Executable CI
 
-`CI` installs locked dev dependencies with `npm ci --ignore-scripts`, then runs
-`npm run typecheck` and `npm test`. Repository secrets are not provided, and checkout
-credentials are not retained.
+For pull requests, `CI` checks out the trusted base SHA and fetches the event's PR
+head as Git objects. It verifies the immutable SHA and removes checkout credentials
+before any PR command runs. The workflow installs Bubblewrap and trusted TypeScript
+and Node type packages from versions declared by the base branch. It then invokes:
+
+```bash
+node src/assertlens.ts --head "$CHECK_HEAD_SHA" --check-only -- tsc --noEmit --typeRoots "$TYPE_ROOTS"
+node src/assertlens.ts --head "$CHECK_HEAD_SHA" --check-only -- npm test
+```
+
+Both commands run against a disposable Git-visible tree with network disabled.
+Repository secrets are not provided, PR source is never checked out on the host,
+and PR dependencies are not installed. On Ubuntu 24.04's disposable hosted runner,
+the setup step permits unprivileged user namespaces and preflights Bubblewrap.
 
 Use **`CI / check`** as the required branch-protection check, not the advisory job.
-The existing CI checks the root CLI package; it does not build this documentation
-site. The docs build can be run locally from `website/`.
+The workflow checks the root CLI package; it does not build this documentation site.
+Run the docs build locally from `website/`.
 
 ## Advisory review
 
@@ -28,16 +39,19 @@ It:
 1. Checks out the trusted base SHA, including the CLI and `.assertlens.json` policy.
 2. Fetches PR commits as Git objects without checking them out.
 3. Confirms the fetched SHA still matches the PR event; a moving PR is rejected.
-4. Runs the trusted CLI with `--base` and `--head` and writes its report to the
-   GitHub Actions job summary.
+4. Removes the read-only checkout credential and preflights Bubblewrap.
+5. Runs `npm test` against the exact PR tree inside the sandbox.
+6. Sends the configured source scope to Jev from the trusted parent process and
+   writes the report to the job summary.
 
-It never installs PR dependencies, runs PR tests, consumes PR artifacts, restores
-caches, or checks out PR source. A read-only checkout token is retained for the
-fetch; no PR code executes in the supplied workflow.
+The final step alone receives `TYPESAFE_API_KEY`. Bubblewrap clears the command
+environment, hides the host checkout, and disables network, so PR tests cannot read
+the key. The workflow never installs PR dependencies, consumes PR artifacts,
+restores caches, or checks out PR source on the host.
 
-The job reports `checks: not_run`. Separate CI results are not imported or trusted
-as model evidence. A missing key or service failure fails the advisory job visibly;
-a completed review with contradictions remains advisory.
+The job records its own sandboxed check result. Separate CI results are not imported
+or trusted as model evidence. A missing key or service failure fails the advisory
+job visibly; a completed review with contradictions remains advisory.
 
 ## Enable review
 
@@ -68,9 +82,11 @@ that the entire PR was checked.
 
 ## Adopt in another TypeScript repository
 
-Keep all `src/*.ts` CLI modules together, copy the trusted review workflow, and
-write your own `.assertlens.json`. Adjust the workflow's entry path if you relocate the
-CLI modules. Keep the target repository's normal CI.
+Copy the trusted CLI modules and workflows, then write your own `.assertlens.json`.
+Adjust the workflow's entry path if you relocate the CLI. Keep the target repository's
+normal CI and provision required compilers/test tools from trusted base policy.
+Git-visible workspaces intentionally omit ignored dependency directories.
 
-The review CLI needs only Node and Git, not `npm install`. Do not install or execute
-untrusted PR code in the secret-bearing review job.
+The CLI itself has no runtime npm dependencies. Do not install PR dependencies on
+the host or expose credentials/network to untrusted checks. Execute PR code only
+through the trusted Bubblewrap runner.

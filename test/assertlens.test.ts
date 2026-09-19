@@ -735,6 +735,7 @@ test("self-review scope includes every runtime module", () => {
 	})
 		.filter((path) => path.endsWith(".ts"))
 		.map((path) => `src/${path}`);
+	assert.ok(settings.files.length <= 20);
 	assert.deepEqual([...settings.files].sort(), modules.sort());
 });
 
@@ -757,6 +758,8 @@ test("CLI help and reports use AssertLens", async (t) => {
 	assert.match(help.stdout, /^AssertLens —/);
 	assert.match(help.stdout, /Usage: node src\/assertlens\.ts/);
 	assert.match(help.stdout, /default: \.assertlens\.json/);
+	for (const option of ["--check-only", "--sandbox-network", "--no-sandbox"])
+		assert.match(help.stdout, new RegExp(option));
 	assert.match(
 		renderReport({
 			mode: "advisory",
@@ -765,5 +768,29 @@ test("CLI help and reports use AssertLens", async (t) => {
 			findings: [],
 		}),
 		/^# AssertLens — advisory review\n/,
+	);
+});
+
+test("documentation describes sandbox behavior and residual limits", () => {
+	const read = (path: string) =>
+		readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+	const readme = read("README.md");
+	const installation = read("website/docs/installation.md");
+	const cli = read("website/docs/cli-usage.md");
+	const security = read("website/docs/security-and-limits.md");
+	const github = read("website/docs/github-actions.md");
+	for (const text of [readme, installation, cli, security]) {
+		assert.match(text, /Bubblewrap/);
+		assert.match(text, /Git-visible/i);
+	}
+	for (const option of ["--check-only", "--sandbox-network", "--no-sandbox"])
+		assert.match(`${readme}\n${cli}`, new RegExp(option));
+	assert.match(security, /network.*disabled by default/is);
+	assert.match(security, /memory.*disk.*(?:fork|process).*denial.of.service/is);
+	assert.match(github, /trusted base/i);
+	assert.match(github, /sandbox/i);
+	assert.doesNotMatch(
+		`${readme}\n${installation}\n${cli}\n${security}`,
+		/local checks are not sandboxed|--head[^\n]*refuses commands/i,
 	);
 });
