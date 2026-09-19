@@ -16,6 +16,7 @@ Usage: node src/qg-jev.ts [options] [-- trusted-command args...]\n
   --config PATH     Config relative to repository root (default: .qg-jev.json)
   --base REF        Compare against this commit (default: HEAD)
   --head REF        Review committed Git data, not working tree; no commands allowed
+  --snapshot        Allow review even when selected files match the base
   --dry-run         Print outbound JSON; no API call or command execution
   --json            Emit machine-readable report instead of Markdown
   --help            Show this help\n
@@ -41,6 +42,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 				config: { type: "string", default: ".qg-jev.json" },
 				base: { type: "string", default: "HEAD" },
 				head: { type: "string" },
+				snapshot: { type: "boolean" },
 				"dry-run": { type: "boolean" },
 				json: { type: "boolean" },
 				help: { type: "boolean" },
@@ -55,7 +57,13 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 			throw new Error("Commands cannot be combined with --head or --dry-run.");
 		const repo = repositoryRoot(values.repo);
 		const config = loadConfig(resolve(repo, values.config));
-		const state = collectState(repo, config, values.base, values.head);
+		const state = collectState(
+			repo,
+			config,
+			values.base,
+			values.head,
+			values.snapshot,
+		);
 		Object.assign(report, {
 			base: state.base,
 			head: state.head,
@@ -92,8 +100,9 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 				return 1;
 			}
 			if (
-				JSON.stringify(collectState(repo, config, values.base, values.head)) !==
-				JSON.stringify(state)
+				JSON.stringify(
+					collectState(repo, config, values.base, values.head, values.snapshot),
+				) !== JSON.stringify(state)
 			) {
 				throw new Error(
 					"Selected files changed during checks; rerun against a stable snapshot.",

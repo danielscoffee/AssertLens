@@ -79,6 +79,7 @@ export function collectState(
 	config: Config,
 	baseRef: string,
 	headRef?: string,
+	snapshot = false,
 ): State {
 	let base = git(
 		repo,
@@ -112,9 +113,9 @@ export function collectState(
 	}));
 	if (files.some((file) => file.before === null && file.after === null))
 		throw new Error("A selected file is missing in both revisions.");
-	if (files.every((file) => file.before === file.after))
+	if (!snapshot && files.every((file) => file.before === file.after))
 		throw new Error(
-			"No changes in selected files; choose --base or update configuration.",
+			"No changes in selected files; use --snapshot, choose --base, or update configuration.",
 		);
 	return { base, head, checks: "not_run", files };
 }

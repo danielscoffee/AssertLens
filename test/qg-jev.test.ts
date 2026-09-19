@@ -79,6 +79,84 @@ test("dry-run captures before/after source without credentials or execution", (t
 	assert.match(result.stderr, /dry.run/i);
 });
 
+test("snapshot dry-run reviews unchanged files without relaxing the default", (t) => {
+	const { run, write } = fixture(t);
+	write("sample.ts", original);
+	const normal = run("--json", "--dry-run");
+	assert.equal(normal.status, 2);
+	assert.match(JSON.parse(normal.stdout).error, /--snapshot/);
+	const snapshot = run("--snapshot", "--dry-run");
+	assert.equal(snapshot.status, 0, snapshot.stderr);
+	const request = JSON.parse(snapshot.stdout);
+	assert.deepEqual(request.state.files, [
+		{ path: "sample.ts", before: original, after: original },
+	]);
+	assert.equal(request.state.checks, "not_run");
+});
+
+test("committed snapshot ignores local edits and still forbids commands", (t) => {
+	const { run } = fixture(t);
+	const result = run("--snapshot", "--head", "HEAD", "--dry-run");
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(JSON.parse(result.stdout).state.files[0].after, original);
+	const command = run(
+		"--snapshot",
+		"--head",
+		"HEAD",
+		"--json",
+		"--",
+		process.execPath,
+		"-e",
+		"process.exit(0)",
+	);
+	assert.equal(command.status, 2);
+	assert.match(JSON.parse(command.stdout).error, /command/i);
+});
+
+test("snapshot mode preserves executable check and missing-key failures", (t) => {
+	const { run, write } = fixture(t);
+	write("sample.ts", original);
+	const failed = run(
+		"--snapshot",
+		"--json",
+		"--",
+		process.execPath,
+		"-e",
+		"process.exit(7)",
+	);
+	assert.equal(failed.status, 1, failed.stderr);
+	assert.equal(JSON.parse(failed.stdout).checks, "failed");
+	assert.equal(JSON.parse(failed.stdout).review, "not_run");
+	const passed = run(
+		"--snapshot",
+		"--json",
+		"--",
+		process.execPath,
+		"-e",
+		"process.exit(0)",
+	);
+	assert.equal(passed.status, 2, passed.stderr);
+	const report = JSON.parse(passed.stdout);
+	assert.equal(report.checks, "passed");
+	assert.equal(report.review, "unavailable");
+	assert.match(report.error, /TYPESAFE_API_KEY/);
+});
+
+test("snapshot mode rejects source changes made during checks", (t) => {
+	const { run, write } = fixture(t);
+	write("sample.ts", original);
+	const result = run(
+		"--snapshot",
+		"--json",
+		"--",
+		process.execPath,
+		"-e",
+		'require("node:fs").writeFileSync("sample.ts", "changed during check")',
+	);
+	assert.equal(result.status, 2, result.stderr);
+	assert.match(JSON.parse(result.stdout).error, /changed during/i);
+});
+
 test("selected untracked files are reviewed, unrelated files are not read", (t) => {
 	const { run, write } = fixture(t);
 	write("new.ts", "export const answer = 42;\n");

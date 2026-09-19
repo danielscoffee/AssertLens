@@ -16,20 +16,23 @@ npm run typecheck
 npm test
 ```
 
-Review requires an existing Git commit and a change in a selected file. Make a local
-edit before reviewing against `HEAD`, or use `--repo` with an existing repository
-and its own `.qg-jev.json`.
+Review requires an existing Git commit. By default, at least one selected file must
+differ from the base. Use `--snapshot` to review selected source even with a clean
+working tree; it still includes full before/after contents against the chosen base.
 
 Inspect the exact outbound payload without credentials or network access:
 
 ```bash
-node src/qg-jev.ts --base HEAD --dry-run
+node src/qg-jev.ts --snapshot --dry-run
 ```
 
 Set `TYPESAFE_API_KEY` through your secret manager or shell environment; do not put
 credentials in configuration or source. The CLI does not load `.env` files.
 
 ```bash
+# Review selected source even with no changes; run checks before calling Jev.
+node src/qg-jev.ts --snapshot -- npm test
+
 # Review current selected files against HEAD, including staged/unstaged/untracked files.
 node src/qg-jev.ts --base HEAD
 
@@ -98,7 +101,7 @@ Requests have a 30-second timeout and are not automatically retried.
 | --- | --- |
 | `0` | Advisory review completed, or help/dry-run completed. **Not approval.** |
 | `1` | Executable check failed, timed out, or could not start. Jev was not called. |
-| `2` | Invalid input or unavailable/incomplete review, including unchanged scope. |
+| `2` | Invalid input or unavailable/incomplete review, including unchanged scope without `--snapshot`. |
 
 ## GitHub pull requests
 
