@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
 	cpSync,
-	existsSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -23,17 +22,6 @@ const config = {
 	files: ["sample.ts"],
 	assertions: { age_boundary: "An 18-year-old is eligible." },
 };
-
-function withoutBubblewrap(t: TestContext): NodeJS.ProcessEnv {
-	const root = mkdtempSync(join(tmpdir(), "assertlens-no-bwrap-"));
-	t.after(() => rmSync(root, { recursive: true, force: true }));
-	const gitDirectory = (process.env.PATH ?? "")
-		.split(":")
-		.find((path) => existsSync(join(path, "git")));
-	assert.ok(gitDirectory, "git must be available for CLI tests");
-	symlinkSync(join(gitDirectory, "git"), join(root, "git"));
-	return { PATH: root };
-}
 
 function fixture(t: TestContext) {
 	const repo = mkdtempSync(join(tmpdir(), "assertlens-test-"));
@@ -62,7 +50,7 @@ function fixture(t: TestContext) {
 	git("add", ".");
 	git("commit", "-qm", "Initial sample");
 	write("sample.ts", changed);
-	const runWithEnv = (env: NodeJS.ProcessEnv, ...args: string[]) =>
+	const run = (...args: string[]) =>
 		spawnSync(process.execPath, [cliPath, "--repo", repo, ...args], {
 			encoding: "utf8",
 			timeout: 15_000,
@@ -71,11 +59,9 @@ function fixture(t: TestContext) {
 				TYPESAFE_API_KEY: "",
 				GITHUB_TOKEN: "",
 				GH_TOKEN: "",
-				...env,
 			},
 		});
-	const run = (...args: string[]) => runWithEnv({}, ...args);
-	return { repo, git, write, run, runWithEnv };
+	return { repo, git, write, run };
 }
 
 test("dry-run captures before/after source without credentials or execution", (t) => {
@@ -300,21 +286,50 @@ test("changes made during checks invalidate their evidence", (t) => {
 	assert.match(JSON.parse(result.stdout).error, /changed during/i);
 });
 
-test("missing Bubblewrap fails the check without calling Jev", (t) => {
-	const { runWithEnv } = fixture(t);
-	const result = runWithEnv(
-		withoutBubblewrap(t),
-		"--json",
-		"--",
-		process.execPath,
-		"-e",
-		"process.exit(0)",
+test("Bubblewrap setup failure fails the check without calling Jev", async (t) => {
+	const { runReview } = await import("../src/application/review.ts");
+	const { createCliGit } = await import("../src/git/cli.ts");
+	const { nodeProcess } = await import("../src/shared/process.ts");
+	const { repo } = fixture(t);
+	let reviewCalls = 0;
+	const result = await runReview(
+		{
+			git: createCliGit(nodeProcess),
+			checkRunner: {
+				run: () => ({
+					status: null,
+					signal: null,
+					stdout: Buffer.alloc(0),
+					stderr: Buffer.alloc(0),
+					error: new Error("No trusted bwrap executable found."),
+					timedOut: false,
+				}),
+			},
+			reviewClient: {
+				async review() {
+					reviewCalls++;
+					return { model: "unused", findings: [] };
+				},
+			},
+			env: { TYPESAFE_API_KEY: "unused" },
+		},
+		{
+			repo,
+			config: ".assertlens.json",
+			base: "HEAD",
+			snapshot: false,
+			dryRun: false,
+			sandboxed: true,
+			network: false,
+			command: ["unused"],
+		},
 	);
-	assert.equal(result.status, 1, result.stderr);
-	const report = JSON.parse(result.stdout);
-	assert.equal(report.checks, "failed");
-	assert.equal(report.review, "not_run");
-	assert.match(report.error, /bwrap|ENOENT/i);
+	assert.equal(result.exitCode, 1);
+	assert.equal(result.kind, "report");
+	assert.equal(result.report.checks, "failed");
+	assert.equal(result.report.review, "not_run");
+	assert.match(result.report.error ?? "", /trusted bwrap/i);
+	assert.equal(reviewCalls, 0);
 });
 
 test("sandbox flags reject unsafe or meaningless combinations", (t) => {

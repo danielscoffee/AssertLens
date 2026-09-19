@@ -14,7 +14,7 @@ const review = readFileSync(
 const immutableFetch =
 	/git fetch --no-tags origin "refs\/pull\/\$PR_NUMBER\/head"[\s\S]*"\$\(git rev-parse FETCH_HEAD\)" != "\$PR_HEAD_SHA"/;
 const temporaryFetchAuth =
-	/GIT_CONFIG_COUNT: "1"[\s\S]*GIT_CONFIG_KEY_0: http\.https:\/\/github\.com\/\.extraheader[\s\S]*GIT_CONFIG_VALUE_0: "AUTHORIZATION: bearer \$\{\{ github\.token \}\}"/;
+	/GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*AUTH_HEADER="\$\(printf 'x-access-token:%s' "\$GITHUB_TOKEN" \| base64 \| tr -d '\\n'\)"[\s\S]*echo "::add-mask::\$AUTH_HEADER"[\s\S]*GIT_CONFIG_COUNT=1 \\\n\s*GIT_CONFIG_KEY_0=http\.https:\/\/github\.com\/\.extraheader \\\n\s*GIT_CONFIG_VALUE_0="AUTHORIZATION: basic \$AUTH_HEADER" \\\n\s*git fetch --no-tags origin "refs\/pull\/\$PR_NUMBER\/head"[\s\S]*unset AUTH_HEADER GITHUB_TOKEN/;
 
 function assertSandboxSetup(workflow: string): void {
 	assert.match(workflow, /apt-get install --yes bubblewrap/);
@@ -40,7 +40,7 @@ test("CI executes immutable PR source only through trusted sandbox tooling", () 
 	assert.match(ci, /persist-credentials: false/);
 	assert.match(ci, immutableFetch);
 	assert.match(ci, temporaryFetchAuth);
-	assert.doesNotMatch(ci, /Remove checkout credentials|unset-all .*extraheader/);
+	assert.doesNotMatch(ci, /AUTHORIZATION: bearer|Remove checkout credentials|unset-all .*extraheader/);
 	assertSandboxSetup(ci);
 	assert.match(
 		ci,
@@ -72,7 +72,7 @@ test("trusted Jev review sandboxes PR tests and scopes its secret to final step"
 	assert.match(review, /persist-credentials: false/);
 	assert.match(review, immutableFetch);
 	assert.match(review, temporaryFetchAuth);
-	assert.doesNotMatch(review, /Remove checkout credentials|unset-all .*extraheader/);
+	assert.doesNotMatch(review, /AUTHORIZATION: bearer|Remove checkout credentials|unset-all .*extraheader/);
 	assertSandboxSetup(review);
 	assert.match(
 		review,
