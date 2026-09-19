@@ -14,6 +14,8 @@
     "src/jev/request.ts",
     "src/jev/response.ts",
     "src/report/report.ts",
+    "src/sandbox/bubblewrap.ts",
+    "src/sandbox/policy.ts",
     "src/shared/process.ts",
     "src/shared/validation.ts"
   ],
