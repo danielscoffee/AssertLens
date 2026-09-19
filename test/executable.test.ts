@@ -103,7 +103,20 @@ test("host Bubblewrap ignores attacker-writable PATH entries or fails closed", (
 	}
 	const workspace = mkdtempSync(join(tmpdir(), "assertlens-trusted-bwrap-"));
 	t.after(() => rmSync(workspace, { recursive: true, force: true }));
-	const result = createBubblewrapRunner(nodeProcess).run({
+	let request: ProcessRequest | undefined;
+	const capture: ProcessPort = {
+		run(value) {
+			request = value;
+			return {
+				status: 0,
+				signal: null,
+				stdout: Buffer.alloc(0),
+				stderr: Buffer.alloc(0),
+				timedOut: false,
+			};
+		},
+	};
+	const result = createBubblewrapRunner(capture).run({
 		command: "/bin/true",
 		args: [],
 		cwd: workspace,
@@ -117,8 +130,11 @@ test("host Bubblewrap ignores attacker-writable PATH entries or fails closed", (
 		timeout: 5_000,
 	});
 	assert.equal(existsSync(fake.marker), false);
-	if (trusted === undefined)
+	if (trusted === undefined) {
 		assert.match(result.error?.message ?? "", /trusted.*bwrap|Bubblewrap/i);
-	else
+		assert.equal(request, undefined);
+	} else {
 		assert.equal(result.error, undefined);
+		assert.equal(request?.command, trusted);
+	}
 });
