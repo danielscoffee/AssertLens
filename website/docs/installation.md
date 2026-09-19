@@ -56,9 +56,11 @@ calling Jev. A successful check is reported separately from Jev's advisory findi
 
 :::note Sandbox boundary
 AssertLens copies Git-visible files into a disposable writable workspace and runs the
-command with Bubblewrap. Network is disabled by default; use `--sandbox-network`
-only when required. Ignored files, `.git`, host dependencies, and service credentials
-are not exposed. Use `--head REF -- command` to check an immutable committed tree.
+command with Bubblewrap. Local staging includes all tracked files even when ignore
+rules match, plus untracked files that are not ignored. Network is disabled by
+default; use `--sandbox-network` only when required. `.git`, untracked ignored files,
+and service credentials are not exposed. Use `--head REF -- command` to check an
+immutable committed tree.
 :::
 
 Use `--no-sandbox` only for trusted local code that must run in the original

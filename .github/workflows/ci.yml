@@ -18,22 +18,21 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           fetch-depth: 0
-          # Read-only token retained only long enough to fetch immutable PR objects.
-          persist-credentials: true
+          persist-credentials: false
       - name: Fetch PR objects without checking them out
         if: ${{ github.event_name == 'pull_request' }}
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: "AUTHORIZATION: bearer ${{ github.token }}"
         run: |
           git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
           if [ "$(git rev-parse FETCH_HEAD)" != "$PR_HEAD_SHA" ]; then
             echo 'PR changed during fetch. Checks unavailable; rerun this workflow.'
             exit 2
           fi
-      - name: Remove checkout credentials
-        if: ${{ always() }}
-        run: git config --local --unset-all http.https://github.com/.extraheader || true
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
@@ -46,6 +45,8 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
           bwrap --ro-bind / / --unshare-user --unshare-pid --disable-userns -- /bin/true
+      - name: Run trusted Bubblewrap integration smoke
+        run: node --test --test-name-pattern='real Bubblewrap' test/sandbox.test.ts
       - name: Install trusted typecheck tools
         run: |
           TYPESCRIPT_VERSION="$(node -p "require('./package.json').devDependencies.typescript")"

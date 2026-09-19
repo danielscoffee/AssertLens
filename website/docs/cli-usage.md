@@ -77,9 +77,10 @@ another repository.
 
 `--` separates the executable command and its arguments. By default, AssertLens
 creates a writable disposable workspace containing only Git-visible files, then runs
-the command without a shell inside Bubblewrap. Local mode includes tracked and
-unignored working files; `--head` materializes the exact committed tree. `.git`,
-ignored files, and host dependency directories are absent. The timeout is two minutes.
+the command without a shell inside Bubblewrap. Local mode includes all tracked files,
+even when ignore rules match, plus untracked files that are not ignored. `--head`
+materializes the exact committed tree. `.git` and untracked ignored files such as host
+dependency directories are absent. The timeout is two minutes.
 Shell operators such as pipes and `&&` are not interpreted.
 
 Network is disabled by default. `--sandbox-network` explicitly retains host

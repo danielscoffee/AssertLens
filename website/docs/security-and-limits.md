@@ -32,12 +32,15 @@ AssertLens clears the child environment, provides a private home and temporary
 directory, and restores only a fixed operational environment. Service tokens never
 enter the sandbox.
 
-Each command receives a writable disposable workspace containing Git-visible files:
-tracked plus unignored working files locally, or the exact committed tree selected
-by `--head`. The original repository, `.git`, ignored files such as `.env`, host
-home, runtime sockets, and host dependency directories are not mounted. System
-toolchains are mounted read-only. Network is disabled by default; the explicit
-`--sandbox-network` flag shares host networking.
+Each command receives a writable disposable workspace containing Git-visible files.
+Local staging includes all tracked files even when ignore rules match, plus untracked
+files that are not ignored; `--head` uses the exact committed tree. The original
+repository, `.git`, untracked ignored files such as `.env`, host home, and runtime
+sockets are not mounted.
+
+Runtime tooling is exposed read-only from existing system roots: `/usr`, `/bin`,
+`/sbin`, `/lib`, `/lib64`, `/nix/store`, `/run/current-system/sw`, and `/opt`.
+Network is disabled by default; `--sandbox-network` explicitly shares host networking.
 
 :::warning Resource denial remains possible
 Bubblewrap isolates files, environment, process visibility, and network access, but
@@ -69,7 +72,9 @@ the committed tree, then executes it in Bubblewrap. The supplied
 | Jev request | 30 seconds; no automatic retries |
 
 Regular UTF-8 source files only: no symlinks, binaries, traversal, globs, or
-submodules. Oversized input fails instead of silently dropping context. These byte
+submodules. Git path names used for sandbox staging must also be valid UTF-8;
+non-UTF-8 Git paths are rejected. Oversized input fails instead of silently dropping
+context. These byte
 limits are not token estimates; server context-limit errors also make a review
 unavailable.
 

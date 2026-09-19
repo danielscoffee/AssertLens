@@ -17,6 +17,7 @@
     "src/report/report.ts",
     "src/sandbox/bubblewrap.ts",
     "src/sandbox/policy.ts",
+    "src/shared/executable.ts",
     "src/shared/process.ts",
     "src/shared/validation.ts"
   ],

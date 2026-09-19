@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
-	chmodSync,
 	cpSync,
 	existsSync,
 	mkdtempSync,
@@ -24,27 +23,6 @@ const config = {
 	files: ["sample.ts"],
 	assertions: { age_boundary: "An 18-year-old is eligible." },
 };
-
-function fakeBubblewrap(t: TestContext): NodeJS.ProcessEnv {
-	const root = mkdtempSync(join(tmpdir(), "assertlens-fake-bwrap-"));
-	t.after(() => rmSync(root, { recursive: true, force: true }));
-	const executable = join(root, "bwrap");
-	writeFileSync(
-		executable,
-		`#!${process.execPath}\n` +
-			`const { spawnSync } = require("node:child_process");\n` +
-			`const args = process.argv.slice(2);\n` +
-			`const separator = args.lastIndexOf("--");\n` +
-			`const bind = args.findIndex((value, index) => value === "--bind" && args[index + 2] === "/workspace");\n` +
-			`const env = {};\n` +
-			`for (let index = 0; index < separator; index++) if (args[index] === "--setenv") env[args[index + 1]] = args[index + 2];\n` +
-			`const result = spawnSync(args[separator + 1], args.slice(separator + 2), { cwd: args[bind + 1], env, stdio: "inherit" });\n` +
-			`if (result.error) { console.error(result.error.message); process.exit(127); }\n` +
-			`process.exit(result.status ?? 1);\n`,
-	);
-	chmodSync(executable, 0o755);
-	return { PATH: `${root}:${process.env.PATH ?? ""}` };
-}
 
 function withoutBubblewrap(t: TestContext): NodeJS.ProcessEnv {
 	const root = mkdtempSync(join(tmpdir(), "assertlens-no-bwrap-"));
@@ -131,26 +109,11 @@ test("snapshot dry-run reviews unchanged files without relaxing the default", (t
 	assert.equal(request.state.checks, "not_run");
 });
 
-test("committed snapshot runs sandboxed commands against committed source", (t) => {
-	const { run, runWithEnv } = fixture(t);
+test("committed snapshot reads committed source", (t) => {
+	const { run } = fixture(t);
 	const result = run("--snapshot", "--head", "HEAD", "--dry-run");
 	assert.equal(result.status, 0, result.stderr);
 	assert.equal(JSON.parse(result.stdout).state.files[0].after, original);
-	const command = runWithEnv(
-		fakeBubblewrap(t),
-		"--snapshot",
-		"--head",
-		"HEAD",
-		"--json",
-		"--",
-		process.execPath,
-		"-e",
-		`process.exit(require("node:fs").readFileSync("sample.ts", "utf8") === ${JSON.stringify(original)} ? 0 : 9)`,
-	);
-	assert.equal(command.status, 2, command.stderr);
-	const report = JSON.parse(command.stdout);
-	assert.equal(report.checks, "passed");
-	assert.match(report.error, /TYPESAFE_API_KEY/);
 });
 
 test("snapshot mode preserves executable check and missing-key failures", (t) => {
@@ -257,6 +220,54 @@ test("a failed executable check remains failed and skips Jev", (t) => {
 	assert.match(result.stderr, /check log/);
 });
 
+test("timeout or signal with zero status skips review", async (t) => {
+	const { runReview } = await import("../src/application/review.ts");
+	const { createCliGit } = await import("../src/git/cli.ts");
+	const { nodeProcess } = await import("../src/shared/process.ts");
+	const { repo } = fixture(t);
+	for (const failure of [
+		{ timedOut: true, signal: null },
+		{ timedOut: false, signal: "SIGKILL" as const },
+	]) {
+		let reviewCalls = 0;
+		const result = await runReview(
+			{
+				git: createCliGit(nodeProcess),
+				checkRunner: {
+					run: () => ({
+						status: 0,
+						signal: failure.signal,
+						stdout: Buffer.alloc(0),
+						stderr: Buffer.alloc(0),
+						timedOut: failure.timedOut,
+					}),
+				},
+				reviewClient: {
+					async review() {
+						reviewCalls++;
+						return { model: "unused", findings: [] };
+					},
+				},
+				env: { TYPESAFE_API_KEY: "unused" },
+			},
+			{
+				repo,
+				config: ".assertlens.json",
+				base: "HEAD",
+				snapshot: false,
+				dryRun: false,
+				sandboxed: false,
+				network: false,
+				command: ["unused"],
+			},
+		);
+		assert.equal(result.exitCode, 1);
+		assert.equal(result.kind, "report");
+		assert.equal(result.report.checks, "failed");
+		assert.equal(reviewCalls, 0);
+	}
+});
+
 test("successful local check cannot mask missing API credentials", (t) => {
 	const { run } = fixture(t);
 	const result = run(
@@ -287,23 +298,6 @@ test("changes made during checks invalidate their evidence", (t) => {
 	);
 	assert.equal(result.status, 2, result.stderr);
 	assert.match(JSON.parse(result.stdout).error, /changed during/i);
-});
-
-test("sandboxed checks mutate only their disposable workspace", (t) => {
-	const { repo, runWithEnv } = fixture(t);
-	const result = runWithEnv(
-		fakeBubblewrap(t),
-		"--json",
-		"--",
-		process.execPath,
-		"-e",
-		'require("node:fs").writeFileSync("sample.ts", "sandbox mutation")',
-	);
-	assert.equal(result.status, 2, result.stderr);
-	const report = JSON.parse(result.stdout);
-	assert.equal(report.checks, "passed");
-	assert.match(report.error, /TYPESAFE_API_KEY/);
-	assert.equal(readFileSync(join(repo, "sample.ts"), "utf8"), changed);
 });
 
 test("missing Bubblewrap fails the check without calling Jev", (t) => {
@@ -358,29 +352,47 @@ test("dry-run and direct head mode never execute a supplied command", (t) => {
 	}
 });
 
-test("check-only runs committed source without config or Jev", (t) => {
-	const { runWithEnv, write } = fixture(t);
+test("check-only runs committed source without config or Jev", async (t) => {
+	const { runCheckOnly } = await import("../src/application/review.ts");
+	const { createCliGit } = await import("../src/git/cli.ts");
+	const { nodeProcess } = await import("../src/shared/process.ts");
+	const { repo, write } = fixture(t);
 	write(".assertlens.json", "not valid JSON");
-	const result = runWithEnv(
-		fakeBubblewrap(t),
-		"--head",
-		"HEAD",
-		"--check-only",
-		"--",
-		process.execPath,
-		"-e",
-		`process.exit(require("node:fs").readFileSync("sample.ts", "utf8") === ${JSON.stringify(original)} ? 0 : 9)`,
+	let observed = "";
+	const result = runCheckOnly(
+		{
+			git: createCliGit(nodeProcess),
+			checkRunner: {
+				run(request) {
+					observed = readFileSync(join(request.cwd, "sample.ts"), "utf8");
+					return {
+						status: 0,
+						signal: null,
+						stdout: Buffer.alloc(0),
+						stderr: Buffer.alloc(0),
+						timedOut: false,
+					};
+				},
+			},
+			env: {},
+		},
+		{
+			repo,
+			head: "HEAD",
+			sandboxed: true,
+			network: false,
+			command: ["unused"],
+		},
 	);
-	assert.equal(result.status, 0, result.stderr);
-	assert.equal(result.stdout, "");
-	assert.match(result.stderr, /check passed/i);
+	assert.equal(result.exitCode, 0);
+	assert.equal(observed, original);
 });
 
 test("check-only returns command failure without review", (t) => {
-	const { runWithEnv } = fixture(t);
-	const result = runWithEnv(
-		fakeBubblewrap(t),
+	const { run } = fixture(t);
+	const result = run(
 		"--check-only",
+		"--no-sandbox",
 		"--",
 		process.execPath,
 		"-e",
@@ -851,6 +863,22 @@ test("documentation describes sandbox behavior and residual limits", () => {
 		assert.match(`${readme}\n${cli}`, new RegExp(option));
 	assert.match(security, /network.*disabled by default/is);
 	assert.match(security, /memory.*disk.*(?:fork|process).*denial.of.service/is);
+	assert.match(
+		`${readme}\n${cli}\n${security}`,
+		/all tracked files.*untracked files.*(?:not ignored|ignore rules)/is,
+	);
+	for (const root of [
+		"/usr",
+		"/bin",
+		"/sbin",
+		"/lib",
+		"/lib64",
+		"/nix/store",
+		"/run/current-system/sw",
+		"/opt",
+	])
+		assert.ok(security.includes(`\`${root}\``), `missing runtime root ${root}`);
+	assert.match(security, /Git path.*UTF-8|UTF-8.*Git path/i);
 	assert.match(readme, /review state and requests are capped at 96,000/i);
 	assert.match(
 		readme,

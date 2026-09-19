@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { checkPassed } from "../src/check/check.ts";
 import { createDirectRunner } from "../src/check/direct.ts";
 import type { ProcessPort, ProcessRequest } from "../src/shared/process.ts";
 import { nodeProcess } from "../src/shared/process.ts";
@@ -55,6 +56,21 @@ test("node process adapter reports nonzero, startup, and timeout failures", () =
 	assert.equal(timeout.status, null);
 	assert.equal(timeout.timedOut, true);
 	assert.equal((timeout.error as NodeJS.ErrnoException).code, "ETIMEDOUT");
+});
+
+test("check success requires a clean zero exit", () => {
+	const clean = {
+		status: 0,
+		signal: null,
+		stdout: Buffer.alloc(0),
+		stderr: Buffer.alloc(0),
+		timedOut: false,
+	};
+	assert.equal(checkPassed(clean), true);
+	assert.equal(checkPassed({ ...clean, timedOut: true }), false);
+	assert.equal(checkPassed({ ...clean, signal: "SIGKILL" }), false);
+	assert.equal(checkPassed({ ...clean, error: new Error("failed") }), false);
+	assert.equal(checkPassed({ ...clean, status: 1 }), false);
 });
 
 test("direct runner strips service tokens and preserves harmless environment", () => {

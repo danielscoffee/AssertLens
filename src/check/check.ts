@@ -16,5 +16,10 @@ export type CheckRunner = {
 };
 
 export function checkPassed(result: CheckResult): boolean {
-	return !result.error && result.status === 0;
+	return (
+		!result.error &&
+		!result.timedOut &&
+		result.signal === null &&
+		result.status === 0
+	);
 }

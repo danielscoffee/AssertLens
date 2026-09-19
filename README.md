@@ -64,10 +64,10 @@ node src/assertlens.ts --repo /path/to/project --base origin/main --dry-run
 
 `--` separates the executable command and arguments. By default, commands run without
 a shell inside Bubblewrap, with a two-minute timeout and network disabled. AssertLens
-creates a writable disposable workspace containing Git-visible files: tracked plus
-unignored working files locally, or the exact committed tree for `--head`. It omits
-`.git`, ignored files, and host dependencies. Use `--sandbox-network` only when a
-check explicitly needs network access.
+creates a writable disposable workspace containing Git-visible files: all tracked
+files, even when ignore rules match, plus untracked files that are not ignored. For
+`--head`, it uses the exact committed tree. It omits `.git` and untracked ignored
+files such as host dependencies. Use `--sandbox-network` only when required.
 
 Check output goes to stderr; stdout contains one Markdown or JSON report. No command
 means `checks: not_run`, not passed. `--dry-run` refuses commands. `--no-sandbox`
@@ -131,9 +131,10 @@ Requests have a 30-second timeout and are not automatically retried.
 
 Two workflows keep execution and secret-bearing review separate:
 
-- **`CI`** checks out trusted base tooling, fetches the immutable PR commit as Git
-  data, removes checkout credentials, then runs typecheck and tests against a
-  disposable Git-visible tree through Bubblewrap. No repository secrets are provided.
+- **`CI`** checks out trusted base tooling without persisting credentials, fetches the
+  immutable PR commit using step-scoped temporary Git configuration, then runs
+  typecheck and tests against a disposable Git-visible tree through Bubblewrap. No
+  repository secrets are provided.
 - **`Jev advisory review`** follows the same trusted-base fetch boundary, runs
   `npm test` inside Bubblewrap, and only then asks Jev from the trusted parent process.
   The TypeSafe key is scoped to that final step and never enters the sandbox. Neither

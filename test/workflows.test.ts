@@ -13,8 +13,8 @@ const review = readFileSync(
 
 const immutableFetch =
 	/git fetch --no-tags origin "refs\/pull\/\$PR_NUMBER\/head"[\s\S]*"\$\(git rev-parse FETCH_HEAD\)" != "\$PR_HEAD_SHA"/;
-const removeCredentials =
-	/git config --local --unset-all http\.https:\/\/github\.com\/\.extraheader \|\| true/;
+const temporaryFetchAuth =
+	/GIT_CONFIG_COUNT: "1"[\s\S]*GIT_CONFIG_KEY_0: http\.https:\/\/github\.com\/\.extraheader[\s\S]*GIT_CONFIG_VALUE_0: "AUTHORIZATION: bearer \$\{\{ github\.token \}\}"/;
 
 function assertSandboxSetup(workflow: string): void {
 	assert.match(workflow, /apt-get install --yes bubblewrap/);
@@ -22,6 +22,10 @@ function assertSandboxSetup(workflow: string): void {
 	assert.match(
 		workflow,
 		/bwrap --ro-bind \/ \/ --unshare-user --unshare-pid --disable-userns -- \/bin\/true/,
+	);
+	assert.match(
+		workflow,
+		/node --test --test-name-pattern='real Bubblewrap' test\/sandbox\.test\.ts/,
 	);
 }
 
@@ -33,9 +37,10 @@ test("CI executes immutable PR source only through trusted sandbox tooling", () 
 		/ref: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.sha \}\}/,
 	);
 	assert.match(ci, /fetch-depth: 0/);
-	assert.match(ci, /persist-credentials: true/);
+	assert.match(ci, /persist-credentials: false/);
 	assert.match(ci, immutableFetch);
-	assert.match(ci, removeCredentials);
+	assert.match(ci, temporaryFetchAuth);
+	assert.doesNotMatch(ci, /Remove checkout credentials|unset-all .*extraheader/);
 	assertSandboxSetup(ci);
 	assert.match(
 		ci,
@@ -51,7 +56,10 @@ test("CI executes immutable PR source only through trusted sandbox tooling", () 
 	);
 	assert.doesNotMatch(ci, /run: npm (ci|run typecheck|test)/);
 	assert.doesNotMatch(ci, /git (checkout|switch)|download-artifact|actions\/cache/);
-	assert.ok(ci.indexOf("Remove checkout credentials") < ci.indexOf("Sandbox PR typecheck"));
+	assert.ok(
+		ci.indexOf("Run trusted Bubblewrap integration smoke") <
+			ci.indexOf("Sandbox PR typecheck"),
+	);
 });
 
 test("trusted Jev review sandboxes PR tests and scopes its secret to final step", () => {
@@ -61,8 +69,10 @@ test("trusted Jev review sandboxes PR tests and scopes its secret to final step"
 		review,
 		/ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/,
 	);
+	assert.match(review, /persist-credentials: false/);
 	assert.match(review, immutableFetch);
-	assert.match(review, removeCredentials);
+	assert.match(review, temporaryFetchAuth);
+	assert.doesNotMatch(review, /Remove checkout credentials|unset-all .*extraheader/);
 	assertSandboxSetup(review);
 	assert.match(
 		review,
@@ -81,7 +91,7 @@ test("trusted Jev review sandboxes PR tests and scopes its secret to final step"
 		1,
 	);
 	assert.ok(
-		review.indexOf("Remove checkout credentials") <
+		review.indexOf("Run trusted Bubblewrap integration smoke") <
 			review.indexOf("Sandbox tests and review immutable PR source"),
 	);
 });

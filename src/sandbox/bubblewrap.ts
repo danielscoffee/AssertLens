@@ -1,4 +1,9 @@
+import { dirname } from "node:path";
 import type { CheckResult, CheckRunner } from "../check/check.ts";
+import {
+	resolveTrustedExecutable,
+	trustedExecutablePath,
+} from "../shared/executable.ts";
 import type { ProcessPort } from "../shared/process.ts";
 import {
 	buildBubblewrapArgs,
@@ -27,11 +32,29 @@ export function createBubblewrapRunner(
 		run(request) {
 			if (platform !== "linux")
 				return unavailable("Bubblewrap sandbox requires Linux.");
+			let executable: string;
+			try {
+				executable = resolveTrustedExecutable("bwrap", request.env.PATH);
+			} catch (error) {
+				return unavailable(
+					error instanceof Error
+						? error.message
+						: "No trusted Bubblewrap executable found.",
+				);
+			}
 			return process.run({
-				command: "bwrap",
+				command: executable,
 				args: buildBubblewrapArgs(request, policy(request.env)),
 				cwd: request.cwd,
-				env: request.env.PATH ? { PATH: request.env.PATH } : {},
+				env: {
+					PATH: [
+						dirname(executable),
+						trustedExecutablePath(request.env.PATH),
+					]
+						.filter(Boolean)
+						.join(":"),
+					LANG: "C.UTF-8",
+				},
 				killSignal: "SIGKILL",
 				output: "inherit",
 				timeout: request.timeout,

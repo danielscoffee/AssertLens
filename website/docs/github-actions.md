@@ -12,10 +12,12 @@ The repository includes two workflows with separate responsibilities.
 
 ## Executable CI
 
-For pull requests, `CI` checks out the trusted base SHA and fetches the event's PR
-head as Git objects. It verifies the immutable SHA and removes checkout credentials
-before any PR command runs. The workflow installs Bubblewrap and trusted TypeScript
-and Node type packages from versions declared by the base branch. It then invokes:
+For pull requests, `CI` checks out the trusted base SHA without persisting checkout
+credentials. It fetches the event's PR head as Git objects using `github.token` only
+through step-scoped temporary Git configuration, then verifies the immutable SHA.
+The workflow installs Bubblewrap, runs trusted base integration smoke tests, and
+installs trusted TypeScript and Node type packages from base-branch versions. It then
+invokes:
 
 ```bash
 node src/assertlens.ts --head "$CHECK_HEAD_SHA" --check-only -- tsc --noEmit --typeRoots "$TYPE_ROOTS"
@@ -47,7 +49,7 @@ It:
 The final step alone receives `TYPESAFE_API_KEY`. Bubblewrap clears the command
 environment, hides the host checkout, and disables network, so PR tests cannot read
 the key. The workflow never installs PR dependencies, consumes PR artifacts,
-restores caches, or checks out PR source on the host.
+restores caches, persists fetch credentials, or checks out PR source on the host.
 
 The job records its own sandboxed check result. Separate CI results are not imported
 or trusted as model evidence. A missing key or service failure fails the advisory
@@ -85,7 +87,8 @@ that the entire PR was checked.
 Copy the trusted CLI modules and workflows, then write your own `.assertlens.json`.
 Adjust the workflow's entry path if you relocate the CLI. Keep the target repository's
 normal CI and provision required compilers/test tools from trusted base policy.
-Git-visible workspaces intentionally omit ignored dependency directories.
+Git-visible workspaces omit untracked ignored dependency directories. Tracked files
+are always staged even when an ignore rule also matches them.
 
 The CLI itself has no runtime npm dependencies. Do not install PR dependencies on
 the host or expose credentials/network to untrusted checks. Execute PR code only
