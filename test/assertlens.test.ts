@@ -357,6 +357,64 @@ test("dry-run and direct head mode never execute a supplied command", (t) => {
 	}
 });
 
+test("check-only runs committed source without config or Jev", (t) => {
+	const { runWithEnv, write } = fixture(t);
+	write(".assertlens.json", "not valid JSON");
+	const result = runWithEnv(
+		fakeBubblewrap(t),
+		"--head",
+		"HEAD",
+		"--check-only",
+		"--",
+		process.execPath,
+		"-e",
+		`process.exit(require("node:fs").readFileSync("sample.ts", "utf8") === ${JSON.stringify(original)} ? 0 : 9)`,
+	);
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(result.stdout, "");
+	assert.match(result.stderr, /check passed/i);
+});
+
+test("check-only returns command failure without review", (t) => {
+	const { runWithEnv } = fixture(t);
+	const result = runWithEnv(
+		fakeBubblewrap(t),
+		"--check-only",
+		"--",
+		process.execPath,
+		"-e",
+		"process.exit(7)",
+	);
+	assert.equal(result.status, 1, result.stderr);
+	assert.equal(result.stdout, "");
+	assert.match(result.stderr, /check failed/i);
+	assert.doesNotMatch(result.stderr, /TYPESAFE_API_KEY/);
+});
+
+test("check-only requires a command and rejects report modes", (t) => {
+	const { run } = fixture(t);
+	const missing = run("--check-only");
+	assert.equal(missing.status, 2, missing.stderr);
+	assert.match(missing.stdout, /command/i);
+	for (const args of [
+		["--check-only", "--json", "--", process.execPath],
+		["--check-only", "--dry-run", "--json", "--", process.execPath],
+		[
+			"--check-only",
+			"--head",
+			"HEAD",
+			"--no-sandbox",
+			"--json",
+			"--",
+			process.execPath,
+		],
+	]) {
+		const result = run(...args);
+		assert.equal(result.status, 2, result.stderr);
+		assert.match(JSON.parse(result.stdout).error, /check-only|sandbox/i);
+	}
+});
+
 test("invalid configuration, sensitive paths, symlinks, and oversized source fail closed", (t) => {
 	const { run, write, repo } = fixture(t);
 	for (const invalid of [

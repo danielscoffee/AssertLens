@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { runReview } from "./application/review.ts";
+import { runCheckOnly, runReview } from "./application/review.ts";
 import { createDirectRunner } from "./check/direct.ts";
 import { cliGit } from "./git/cli.ts";
 import { httpJev } from "./jev/http.ts";
@@ -19,6 +19,7 @@ Usage: node src/assertlens.ts [options] [-- command args...]\n
   --base REF          Compare against this commit (default: HEAD)
   --head REF          Review committed Git data; commands run in its sandboxed tree
   --snapshot          Allow review even when selected files match the base
+  --check-only        Run the command without configuration or Jev review
   --sandbox-network   Allow network access inside the command sandbox
   --no-sandbox        Run a trusted local command directly (incompatible with --head)
   --dry-run           Print outbound JSON; no API call or command execution
@@ -57,6 +58,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 				base: { type: "string", default: "HEAD" },
 				head: { type: "string" },
 				snapshot: { type: "boolean" },
+				"check-only": { type: "boolean" },
 				"sandbox-network": { type: "boolean" },
 				"no-sandbox": { type: "boolean" },
 				"dry-run": { type: "boolean" },
@@ -74,6 +76,11 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 			: undefined;
 		const sandboxed = !(values["no-sandbox"] ?? false);
 		const network = values["sandbox-network"] ?? false;
+		const checkOnly = values["check-only"] ?? false;
+		if (checkOnly && (!command || values["dry-run"] || json))
+			throw new Error(
+				"--check-only requires a command and cannot be combined with --dry-run or --json.",
+			);
 		if (command && values["dry-run"])
 			throw new Error("Commands cannot be combined with --dry-run.");
 		if (network && (!command || !sandboxed))
@@ -86,14 +93,32 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 			process.stderr.write(
 				"Warning: command is not sandboxed; run only trusted local code.\n",
 			);
+		const dependencies = {
+			git: cliGit,
+			checkRunner: sandboxed
+				? createBubblewrapRunner(nodeProcess)
+				: createDirectRunner(nodeProcess),
+			env: process.env,
+		};
+		if (checkOnly && command) {
+			const result = runCheckOnly(dependencies, {
+				repo: values.repo,
+				head: values.head,
+				sandboxed,
+				network,
+				command,
+			});
+			process.stderr.write(
+				result.exitCode === 0
+					? "Check passed.\n"
+					: `Check ${result.exitCode === 1 ? "failed" : "unavailable"}${result.error ? `: ${result.error}` : "."}\n`,
+			);
+			return result.exitCode;
+		}
 		const result = await runReview(
 			{
-				git: cliGit,
-				checkRunner: sandboxed
-					? createBubblewrapRunner(nodeProcess)
-					: createDirectRunner(nodeProcess),
+				...dependencies,
 				reviewClient: httpJev,
-				env: process.env,
 			},
 			{
 				repo: values.repo,
