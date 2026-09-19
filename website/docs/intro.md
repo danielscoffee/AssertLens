@@ -22,8 +22,8 @@ A completed review is not a merge approval.
 
 1. Select files and narrow, falsifiable assertions in `.assertlens.json`.
 2. Inspect the exact outbound JSON with `--dry-run` before sharing source.
-3. Optionally run a trusted local check. A failed check stops the review before
-   Jev is called.
+3. Optionally run a sandboxed check. A failed check stops the review before Jev
+   is called.
 4. Read the report, which separates executable check status from model judgments.
 
 For each assertion, Jev chooses `supported`, `contradicted`, or `insufficient`.
