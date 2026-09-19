@@ -63,13 +63,14 @@ the committed tree, then executes it in Bubblewrap. The supplied
 | Selected files | 1–20 unique literal repository-relative paths |
 | Named assertions | 1–20 |
 | Assertion text | Nonblank, at most 1,000 characters |
-| Configuration, state, request, response, and individual source reads | 64,000 bytes each |
+| Serialized review state and outbound request | 96,000 bytes each |
+| Configuration, response, and individual source reads | 64,000 bytes each |
 | Executable check | Two minutes |
 | Jev request | 30 seconds; no automatic retries |
 
 Regular UTF-8 source files only: no symlinks, binaries, traversal, globs, or
-submodules. Oversized input fails instead of silently dropping context. The byte
-limit is not a token estimate; server context-limit errors also make a review
+submodules. Oversized input fails instead of silently dropping context. These byte
+limits are not token estimates; server context-limit errors also make a review
 unavailable.
 
 No dependency discovery occurs. Omitted source and tests remain outside the review

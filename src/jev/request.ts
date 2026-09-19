@@ -1,10 +1,10 @@
 import type { Config } from "../config/config.ts";
 import type { State } from "../git/git.ts";
-import { bounded } from "../shared/validation.ts";
+import { bounded, MAX_REVIEW_BYTES } from "../shared/validation.ts";
 import { criteria, type ReviewRequest } from "./jev.ts";
 
 export function makeRequest(config: Config, state: State): ReviewRequest {
-	bounded(JSON.stringify(state), "State");
+	bounded(JSON.stringify(state), "State", MAX_REVIEW_BYTES);
 	const request: ReviewRequest = {
 		model: config.model,
 		state,
@@ -23,6 +23,6 @@ export function makeRequest(config: Config, state: State): ReviewRequest {
 			]),
 		),
 	};
-	bounded(JSON.stringify(request), "Request");
+	bounded(JSON.stringify(request), "Request", MAX_REVIEW_BYTES);
 	return request;
 }

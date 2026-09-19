@@ -1,4 +1,8 @@
-import { bounded, MAX_BYTES } from "../shared/validation.ts";
+import {
+	bounded,
+	MAX_BYTES,
+	MAX_REVIEW_BYTES,
+} from "../shared/validation.ts";
 import type {
 	ReviewClient,
 	ReviewRequest,
@@ -22,7 +26,11 @@ export async function review(
 				Authorization: `Bearer ${apiKey}`,
 				"Content-Type": "application/json",
 			},
-			body: bounded(JSON.stringify(request), "Request"),
+			body: bounded(
+				JSON.stringify(request),
+				"Request",
+				MAX_REVIEW_BYTES,
+			),
 		});
 		if (!response.ok)
 			throw new Error(

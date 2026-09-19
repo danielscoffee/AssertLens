@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	cpSync,
 	existsSync,
 	mkdtempSync,
 	readdirSync,
@@ -604,6 +605,51 @@ test("missing, malformed, and contradictory API answers cannot become findings",
 	}
 });
 
+test("aggregate review payloads over 96,000 bytes fail closed", async () => {
+	const { makeRequest } = await import("../src/assertlens.ts");
+	assert.throws(
+		() =>
+			makeRequest(config, {
+				base: "base",
+				head: "working-tree",
+				checks: "not_run",
+				files: [
+					{
+						path: "sample.ts",
+						before: "x".repeat(50_000),
+						after: "x".repeat(50_000),
+					},
+				],
+			}),
+		/State exceeds 96000-byte limit/,
+	);
+	const assertions = Object.fromEntries(
+		Array.from({ length: 20 }, (_, index) => [
+			`claim_${index}`,
+			"x".repeat(1_000),
+		]),
+	);
+	assert.throws(
+		() =>
+			makeRequest(
+				{ ...config, assertions },
+				{
+					base: "base",
+					head: "working-tree",
+					checks: "not_run",
+					files: [
+						{
+							path: "sample.ts",
+							before: "x".repeat(35_000),
+							after: "x".repeat(35_000),
+						},
+					],
+				},
+			),
+		/Request exceeds 96000-byte limit/,
+	);
+});
+
 test("service failure hides response bodies, missing keys make no network request", async (t) => {
 	const { makeRequest, review } = await import("../src/assertlens.ts");
 	const request = makeRequest(config, {
@@ -739,6 +785,24 @@ test("self-review scope includes every runtime module", () => {
 	assert.deepEqual([...settings.files].sort(), modules.sort());
 });
 
+test("self-review snapshot fits the aggregate review limit", (t) => {
+	const { repo, git, write, run } = fixture(t);
+	cpSync(new URL("../src/", import.meta.url), join(repo, "src"), {
+		recursive: true,
+	});
+	write(
+		".assertlens.json",
+		readFileSync(new URL("../.assertlens.json", import.meta.url), "utf8"),
+	);
+	git("add", ".");
+	git("commit", "-qm", "Add self-review source");
+	const result = run("--snapshot", "--dry-run", "--json");
+	assert.equal(result.status, 0, result.stdout || result.stderr);
+	const requestBytes = Buffer.byteLength(JSON.stringify(JSON.parse(result.stdout)));
+	assert.ok(requestBytes > 64_000);
+	assert.ok(requestBytes <= 96_000);
+});
+
 test("AssertLens package uses TypeScript directly", () => {
 	const manifest = JSON.parse(
 		readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -787,6 +851,19 @@ test("documentation describes sandbox behavior and residual limits", () => {
 		assert.match(`${readme}\n${cli}`, new RegExp(option));
 	assert.match(security, /network.*disabled by default/is);
 	assert.match(security, /memory.*disk.*(?:fork|process).*denial.of.service/is);
+	assert.match(readme, /review state and requests are capped at 96,000/i);
+	assert.match(
+		readme,
+		/64,000-byte\s+cap remains for configuration, responses, and individual source reads/i,
+	);
+	assert.match(
+		security,
+		/Serialized review state and outbound request \| 96,000 bytes each/,
+	);
+	assert.match(
+		security,
+		/Configuration, response, and individual source reads \| 64,000 bytes each/,
+	);
 	assert.match(github, /trusted base/i);
 	assert.match(github, /sandbox/i);
 	assert.doesNotMatch(

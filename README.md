@@ -107,9 +107,10 @@ your test suite. Prefer narrow, falsifiable claims to â€œthis code is correct.â€
 - Secret-like paths are rejected as an accident guard, **not a secret scanner**.
   Do not select files containing credentials or personal data. Inspect dry-run output
   before sending private code; avoid saving sensitive payloads in shared logs.
-- State, request, response, and individual source reads are capped at 64,000 bytes.
-  Oversized input fails instead of silently dropping context. This byte limit is
-  not a token estimate; server context-limit errors also make review unavailable.
+- Serialized review state and requests are capped at 96,000 bytes. A 64,000-byte
+  cap remains for configuration, responses, and individual source reads. Oversized
+  input fails instead of silently dropping context. These byte limits are not token
+  estimates; server context-limit errors also make review unavailable.
 
 For each assertion, Jev chooses `supported`, `contradicted`, or `insufficient`.
 Insufficient evidence and confidence below 0.8 become `needs_review`. Reports retain
