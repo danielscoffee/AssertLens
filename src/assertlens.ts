@@ -10,10 +10,10 @@ import { renderReport, type Report } from "./report.ts";
 export { makeRequest, review } from "./jev.ts";
 export { renderReport } from "./report.ts";
 
-const HELP = `qg-jev — local checks + advisory Jev review (Node 24.12+)\n
-Usage: node src/qg-jev.ts [options] [-- trusted-command args...]\n
+const HELP = `AssertLens — local checks + advisory Jev review (Node 24.12+)\n
+Usage: node src/assertlens.ts [options] [-- trusted-command args...]\n
   --repo PATH       Repository to review (default: current directory)
-  --config PATH     Config relative to repository root (default: .qg-jev.json)
+  --config PATH     Config relative to repository root (default: .assertlens.json)
   --base REF        Compare against this commit (default: HEAD)
   --head REF        Review committed Git data, not working tree; no commands allowed
   --snapshot        Allow review even when selected files match the base
@@ -39,7 +39,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 			allowPositionals: true,
 			options: {
 				repo: { type: "string", default: "." },
-				config: { type: "string", default: ".qg-jev.json" },
+				config: { type: "string", default: ".assertlens.json" },
 				base: { type: "string", default: "HEAD" },
 				head: { type: "string" },
 				snapshot: { type: "boolean" },

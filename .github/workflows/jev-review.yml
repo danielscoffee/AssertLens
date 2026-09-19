@@ -45,4 +45,4 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          node src/qg-jev.ts --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+          node src/assertlens.ts --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"

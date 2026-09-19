@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const cliPath = fileURLToPath(new URL("../src/qg-jev.ts", import.meta.url));
+const cliPath = fileURLToPath(new URL("../src/assertlens.ts", import.meta.url));
 const original = "export const eligible = (age: number) => age >= 18;\n";
 const changed = "export const eligible = (age: number) => age > 18;\n";
 const config = {
@@ -23,7 +23,7 @@ const config = {
 };
 
 function fixture(t: TestContext) {
-	const repo = mkdtempSync(join(tmpdir(), "qg-jev-test-"));
+	const repo = mkdtempSync(join(tmpdir(), "assertlens-test-"));
 	t.after(() => rmSync(repo, { recursive: true, force: true }));
 	const git = (...args: string[]) =>
 		execFileSync(
@@ -45,7 +45,7 @@ function fixture(t: TestContext) {
 		writeFileSync(join(repo, path), content);
 	git("init", "-b", "main");
 	write("sample.ts", original);
-	write(".qg-jev.json", JSON.stringify(config));
+	write(".assertlens.json", JSON.stringify(config));
 	git("add", ".");
 	git("commit", "-qm", "Initial sample");
 	write("sample.ts", changed);
@@ -161,7 +161,7 @@ test("selected untracked files are reviewed, unrelated files are not read", (t) 
 	const { run, write } = fixture(t);
 	write("new.ts", "export const answer = 42;\n");
 	write(
-		".qg-jev.json",
+		".assertlens.json",
 		JSON.stringify({ ...config, files: ["sample.ts", "new.ts"] }),
 	);
 	write("unrelated.txt", "not selected");
@@ -263,15 +263,15 @@ test("invalid configuration, sensitive paths, symlinks, and oversized source fai
 		{ ...config, files: [".git/config"] },
 		{ ...config, files: ["sample.ts"], typo: true },
 	]) {
-		write(".qg-jev.json", JSON.stringify(invalid));
+		write(".assertlens.json", JSON.stringify(invalid));
 		const result = run("--json", "--dry-run");
 		assert.equal(result.status, 2, result.stderr);
 		assert.equal(JSON.parse(result.stdout).review, "unavailable");
 	}
-	write(".qg-jev.json", JSON.stringify({ ...config, files: ["link.ts"] }));
+	write(".assertlens.json", JSON.stringify({ ...config, files: ["link.ts"] }));
 	symlinkSync(join(repo, "sample.ts"), join(repo, "link.ts"));
 	assert.equal(run("--dry-run").status, 2);
-	write(".qg-jev.json", JSON.stringify(config));
+	write(".assertlens.json", JSON.stringify(config));
 	write("sample.ts", "x".repeat(100_001));
 	const oversized = run("--json", "--dry-run");
 	assert.equal(oversized.status, 2);
@@ -284,7 +284,10 @@ test("binary content, missing paths, and unchanged scope are not successful revi
 		write("sample.ts", source);
 		assert.equal(run("--dry-run").status, 2);
 	}
-	write(".qg-jev.json", JSON.stringify({ ...config, files: ["missing.ts"] }));
+	write(
+		".assertlens.json",
+		JSON.stringify({ ...config, files: ["missing.ts"] }),
+	);
 	assert.equal(run("--dry-run").status, 2);
 });
 
@@ -326,7 +329,7 @@ function answer(choice = "supported", confidence = 0.95) {
 }
 
 test("HTTP contract batches questions and reports valid judgments as advisory", async (t) => {
-	const { makeRequest, review } = await import("../src/qg-jev.ts");
+	const { makeRequest, review } = await import("../src/assertlens.ts");
 	const request = makeRequest(config, {
 		base: "base",
 		head: "working-tree",
@@ -356,7 +359,7 @@ test("HTTP contract batches questions and reports valid judgments as advisory", 
 });
 
 test("uncertainty and insufficient evidence always request human review", async (t) => {
-	const { makeRequest, review } = await import("../src/qg-jev.ts");
+	const { makeRequest, review } = await import("../src/assertlens.ts");
 	const request = makeRequest(config, {
 		base: "base",
 		head: "working-tree",
@@ -379,7 +382,7 @@ test("uncertainty and insufficient evidence always request human review", async 
 });
 
 test("Markdown retains the raw choice when uncertainty changes the verdict", async () => {
-	const { renderReport } = await import("../src/qg-jev.ts");
+	const { renderReport } = await import("../src/assertlens.ts");
 	const report = renderReport({
 		mode: "advisory",
 		checks: "passed",
@@ -403,7 +406,7 @@ test("Markdown retains the raw choice when uncertainty changes the verdict", asy
 });
 
 test("missing, malformed, and contradictory API answers cannot become findings", async (t) => {
-	const { makeRequest, review } = await import("../src/qg-jev.ts");
+	const { makeRequest, review } = await import("../src/assertlens.ts");
 	const request = makeRequest(config, {
 		base: "base",
 		head: "working-tree",
@@ -439,7 +442,7 @@ test("missing, malformed, and contradictory API answers cannot become findings",
 });
 
 test("service failure hides response bodies, missing keys make no network request", async (t) => {
-	const { makeRequest, review } = await import("../src/qg-jev.ts");
+	const { makeRequest, review } = await import("../src/assertlens.ts");
 	const request = makeRequest(config, {
 		base: "base",
 		head: "working-tree",
@@ -462,7 +465,7 @@ test("service failure hides response bodies, missing keys make no network reques
 });
 
 test("complete CLI review remains advisory and strips service tokens from local checks", async (t) => {
-	const { main } = await import("../src/qg-jev.ts");
+	const { main } = await import("../src/assertlens.ts");
 	const { repo } = fixture(t);
 	const oldKey = process.env.TYPESAFE_API_KEY;
 	process.env.TYPESAFE_API_KEY = "test-only-token";
@@ -502,7 +505,7 @@ test("complete CLI review remains advisory and strips service tokens from local 
 });
 
 test("malformed, oversized, and disconnected HTTP responses fail closed", async (t) => {
-	const { makeRequest, review } = await import("../src/qg-jev.ts");
+	const { makeRequest, review } = await import("../src/assertlens.ts");
 	const request = makeRequest(config, {
 		base: "base",
 		head: "working-tree",
@@ -536,7 +539,7 @@ test("modules compose a local review request without the CLI", async (t) => {
 	const { makeRequest } = await import("../src/jev.ts");
 	const { repo } = fixture(t);
 	const root = repositoryRoot(repo);
-	const settings = loadConfig(join(root, ".qg-jev.json"));
+	const settings = loadConfig(join(root, ".assertlens.json"));
 	const state = collectState(root, settings, "HEAD");
 	const request = makeRequest(settings, state);
 	assert.equal(root, repo);
@@ -548,7 +551,7 @@ test("modules compose a local review request without the CLI", async (t) => {
 });
 
 test("entry point preserves existing public exports", async () => {
-	const cli = await import("../src/qg-jev.ts");
+	const cli = await import("../src/assertlens.ts");
 	const jev = await import("../src/jev.ts");
 	const report = await import("../src/report.ts");
 	assert.equal(cli.makeRequest, jev.makeRequest);
@@ -558,7 +561,7 @@ test("entry point preserves existing public exports", async () => {
 
 test("self-review scope includes every runtime module", () => {
 	const settings = JSON.parse(
-		readFileSync(new URL("../.qg-jev.json", import.meta.url), "utf8"),
+		readFileSync(new URL("../.assertlens.json", import.meta.url), "utf8"),
 	);
 	const modules = readdirSync(new URL("../src/", import.meta.url))
 		.filter((path) => path.endsWith(".ts"))
@@ -566,11 +569,32 @@ test("self-review scope includes every runtime module", () => {
 	assert.deepEqual([...settings.files].sort(), modules.sort());
 });
 
-test("documentation and package use TypeScript directly", () => {
+test("AssertLens package uses TypeScript directly", () => {
 	const manifest = JSON.parse(
 		readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 	);
+	assert.equal(manifest.name, "assertlens");
+	assert.deepEqual(manifest.bin, { assertlens: "./src/assertlens.ts" });
 	assert.equal(manifest.scripts.typecheck, "tsc --noEmit");
-	assert.match(manifest.scripts.review, /\.ts$/);
+	assert.equal(manifest.scripts.review, "node src/assertlens.ts");
 	assert.equal(manifest.dependencies, undefined);
+});
+
+test("CLI help and reports use AssertLens", async (t) => {
+	const { renderReport } = await import("../src/assertlens.ts");
+	const { run } = fixture(t);
+	const help = run("--help");
+	assert.equal(help.status, 0, help.stderr);
+	assert.match(help.stdout, /^AssertLens —/);
+	assert.match(help.stdout, /Usage: node src\/assertlens\.ts/);
+	assert.match(help.stdout, /default: \.assertlens\.json/);
+	assert.match(
+		renderReport({
+			mode: "advisory",
+			checks: "not_run",
+			review: "not_run",
+			findings: [],
+		}),
+		/^# AssertLens — advisory review\n/,
+	);
 });
