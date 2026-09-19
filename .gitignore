@@ -1,0 +1,8 @@
+node_modules/
+.pi-subagents/
+.env
+.env.*
+*.pem
+*.key
+coverage/
+*.tsbuildinfo

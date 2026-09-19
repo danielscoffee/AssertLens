@@ -1,0 +1,16 @@
+{
+  "model": "jev-1.13.0",
+  "files": [
+    "src/qg-jev.ts",
+    "src/config.ts",
+    "src/git.ts",
+    "src/jev.ts",
+    "src/report.ts",
+    "src/validation.ts"
+  ],
+  "assertions": {
+    "check_failure": "A failed executable check makes the CLI exit nonzero and prevents the Jev API call.",
+    "invalid_evidence": "Missing or malformed Jev answers produce an unavailable review, not a supported assertion.",
+    "advisory_only": "Jev judgments cannot override failed executable checks or automatically authorize a merge."
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "qg-jev",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local correctness checks and advisory Jev pull-request review.",
+  "engines": {
+    "node": ">=24.12.0"
+  },
+  "bin": {
+    "qg-jev": "./src/qg-jev.ts"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "review": "node src/qg-jev.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "typescript": "7.0.2"
+  }
+}
