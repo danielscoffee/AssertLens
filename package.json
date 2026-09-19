@@ -1,5 +1,5 @@
 {
-  "name": "qg-jev",
+  "name": "assertlens",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,12 +8,12 @@
     "node": ">=24.12.0"
   },
   "bin": {
-    "qg-jev": "./src/qg-jev.ts"
+    "assertlens": "./src/assertlens.ts"
   },
   "scripts": {
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "review": "node src/qg-jev.ts"
+    "review": "node src/assertlens.ts"
   },
   "devDependencies": {
     "@types/node": "24.13.6",

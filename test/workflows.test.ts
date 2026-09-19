@@ -30,7 +30,7 @@ test("PR execution has no secrets; trusted review never executes PR code", () =>
 	assert.match(review, /"\$\(git rev-parse FETCH_HEAD\)" != "\$PR_HEAD_SHA"/);
 	assert.match(
 		review,
-		/node src\/qg-jev\.ts --base "\$PR_BASE_SHA" --head "\$PR_HEAD_SHA"/,
+		/node src\/assertlens\.ts --base "\$PR_BASE_SHA" --head "\$PR_HEAD_SHA"/,
 	);
 	assert.doesNotMatch(
 		review,

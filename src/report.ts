@@ -21,7 +21,7 @@ function markdownText(text: string): string {
 
 export function renderReport(report: Report): string {
 	const lines = [
-		"# qg-jev — advisory review",
+		"# AssertLens — advisory review",
 		"",
 		`Executable checks: **${report.checks}**. Jev review: **${report.review}**.`,
 		"",

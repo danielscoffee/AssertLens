@@ -25,7 +25,7 @@
 
 ## Task 1: Tests before implementation
 
-**Files:** `test/qg-jev.test.ts`, `package.json`, `tsconfig.json`.
+**Files:** `test/assertlens.test.ts`, `package.json`, `tsconfig.json`.
 
 1. Use `node:test` with temporary Git repositories to exercise real local changes, untracked selected files, committed-head isolation, and merge-base behavior.
 2. Write CLI assertions for dry-run, failed checks, missing keys, invalid config, secret-path rejection, and excessive input. First run should fail because CLI is absent.
@@ -34,7 +34,7 @@
 
 ## Task 2: Minimal local implementation
 
-**Files:** `src/qg-jev.ts`, `.qg-jev.json`, `.gitignore`, `package.json`.
+**Files:** `src/assertlens.ts`, `.assertlens.json`, `.gitignore`, `package.json`.
 
 1. Implement config validation and bounded, literal-path Git reads. Reject symlinks, binary input, secret-like paths, and silent truncation.
 2. Construct narrow batched questions with explicit insufficient-evidence criteria. Use `POST https://api.typesafe.ai/v1/systemone`, bearer auth, timeout, and no redirects.
@@ -61,11 +61,13 @@
 
 ## Validation results
 
+Historical results from the initial implementation; path references use current AssertLens names.
+
 - `npm ci --ignore-scripts`: passed; lockfile and manifest agree.
 - `npm run typecheck`: passed.
 - `npm test`: 20 tests passed, including real temporary Git repositories and CLI subprocesses.
 - `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/ci.yml .github/workflows/jev-review.yml`: passed.
-- `node src/qg-jev.ts --help`: passed. Local dry-run, untracked source, committed-head isolation, and fork-safe workflow invariants are covered by tests.
+- `node src/assertlens.ts --help`: passed. Local dry-run, untracked source, committed-head isolation, and fork-safe workflow invariants are covered by tests.
 - Primary LSP diagnostics: clean. Final lens cache has no blocking errors but retains two warnings for the removed privileged-trigger draft; current workflow uses ordinary `pull_request`.
 - Independent read-only review: no Critical/Important findings. Minor omission of raw choice from Markdown fixed and covered by a regression test.
 - Live TypeSafe requests and hosted GitHub runs were not tested: no API key or remote repository configured. Source remains uncommitted; review needs an existing base commit.

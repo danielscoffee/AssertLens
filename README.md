@@ -1,10 +1,23 @@
-# qg-jev
+# AssertLens
 
-Local correctness checks and advisory GitHub PR review, written in TypeScript.
-Node 24.12+ runs the source directly. No runtime dependencies, server, or build step.
+Run local correctness checks and advisory GitHub pull-request reviews with AssertLens.
+Node 24.12+ runs the TypeScript source directly. No runtime dependencies, server, or build step.
 
 **Executable checks test behavior. Jev judges explicit assertions against selected
 source. Neither passing tests nor model confidence proves general correctness.**
+
+## Documentation
+
+Guides live in [`website/docs/`](website/docs/intro.md). Run the isolated Docusaurus
+site locally:
+
+```bash
+npm ci --prefix website --ignore-scripts
+npm run --prefix website start
+```
+
+See [`website/README.md`](website/README.md) for build and preview commands.
+The CLI does not depend on the documentation site's packages.
 
 ## Local usage
 
@@ -23,7 +36,7 @@ working tree; it still includes full before/after contents against the chosen ba
 Inspect the exact outbound payload without credentials or network access:
 
 ```bash
-node src/qg-jev.ts --snapshot --dry-run
+node src/assertlens.ts --snapshot --dry-run
 ```
 
 Set `TYPESAFE_API_KEY` through your secret manager or shell environment; do not put
@@ -31,19 +44,19 @@ credentials in configuration or source. The CLI does not load `.env` files.
 
 ```bash
 # Review selected source even with no changes; run checks before calling Jev.
-node src/qg-jev.ts --snapshot -- npm test
+node src/assertlens.ts --snapshot -- npm test
 
-# Review current selected files against HEAD, including staged/unstaged/untracked files.
-node src/qg-jev.ts --base HEAD
+# Review selected working-tree files against HEAD, including untracked files.
+node src/assertlens.ts --base HEAD
 
 # Run a trusted local check first. Failure exits 1 without calling Jev.
-node src/qg-jev.ts --base HEAD -- npm test
+node src/assertlens.ts --base HEAD -- npm test
 
 # Review another repository; configuration is relative to that repository's root.
-node src/qg-jev.ts --repo /path/to/project --base origin/main --dry-run
+node src/assertlens.ts --repo /path/to/project --base origin/main --dry-run
 
 # Review committed branch changes against their merge base; do not execute PR code.
-node src/qg-jev.ts --base origin/main --head HEAD --json
+node src/assertlens.ts --base origin/main --head HEAD --json
 ```
 
 `--` separates the executable command and arguments. Commands run directly, not
@@ -58,7 +71,7 @@ Use a trusted CLI and trusted configuration when reviewing another repository.
 
 ## Assertions and scope
 
-Edit `.qg-jev.json` to name the exact files and claims you want reviewed:
+Edit `.assertlens.json` to name the exact files and claims you want reviewed:
 
 ```json
 {
@@ -137,7 +150,7 @@ base branch. Workflow definitions themselves can be edited in same-repository PR
 restrict contributor access and review `.github/workflows/` changes carefully.
 
 To adopt this in another TypeScript repository, keep all `src/*.ts` modules together,
-copy the trusted review workflow and your own `.qg-jev.json`, and adjust the workflow's
+copy the trusted review workflow and your own `.assertlens.json`, and adjust the workflow's
 entry path if relocating them. Keep that repository's normal CI. The review CLI
 itself needs only Node and Git, not `npm install`.
 
@@ -145,15 +158,16 @@ itself needs only Node and Git, not `npm install`.
 
 | File | Responsibility |
 | --- | --- |
-| `src/qg-jev.ts` | CLI arguments, executable checks, and orchestration |
+| `src/assertlens.ts` | CLI arguments, executable checks, and orchestration |
 | `src/config.ts` | Configuration parsing and validation |
 | `src/git.ts` | Repository discovery and bounded source snapshots |
 | `src/jev.ts` | Typed questions, HTTP requests, and answer validation |
 | `src/report.ts` | Report types and Markdown rendering |
 | `src/validation.ts` | Shared size limits and value guards |
 
-Types live with the modules that own them. CLI commands and existing public exports
-remain unchanged. The self-review configuration selects every runtime module.
+Types live with the modules that own them. The `src/assertlens.ts` entry point
+exports `makeRequest`, `review`, and `renderReport`. The self-review configuration
+selects every runtime module.
 
 ## Validation and limits
 
