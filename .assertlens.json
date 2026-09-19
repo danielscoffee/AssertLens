@@ -1,12 +1,25 @@
 {
   "model": "jev-1.13.0",
   "files": [
+    "src/application/review.ts",
     "src/assertlens.ts",
-    "src/config.ts",
-    "src/git.ts",
-    "src/jev.ts",
-    "src/report.ts",
-    "src/validation.ts"
+    "src/check/check.ts",
+    "src/check/direct.ts",
+    "src/config/config.ts",
+    "src/git/cli.ts",
+    "src/git/git.ts",
+    "src/git/state.ts",
+    "src/git/workspace.ts",
+    "src/jev/http.ts",
+    "src/jev/jev.ts",
+    "src/jev/request.ts",
+    "src/jev/response.ts",
+    "src/report/report.ts",
+    "src/sandbox/bubblewrap.ts",
+    "src/sandbox/policy.ts",
+    "src/shared/executable.ts",
+    "src/shared/process.ts",
+    "src/shared/validation.ts"
   ],
   "assertions": {
     "check_failure": "A failed executable check makes the CLI exit nonzero and prevents the Jev API call.",

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+	cpSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -94,23 +95,11 @@ test("snapshot dry-run reviews unchanged files without relaxing the default", (t
 	assert.equal(request.state.checks, "not_run");
 });
 
-test("committed snapshot ignores local edits and still forbids commands", (t) => {
+test("committed snapshot reads committed source", (t) => {
 	const { run } = fixture(t);
 	const result = run("--snapshot", "--head", "HEAD", "--dry-run");
 	assert.equal(result.status, 0, result.stderr);
 	assert.equal(JSON.parse(result.stdout).state.files[0].after, original);
-	const command = run(
-		"--snapshot",
-		"--head",
-		"HEAD",
-		"--json",
-		"--",
-		process.execPath,
-		"-e",
-		"process.exit(0)",
-	);
-	assert.equal(command.status, 2);
-	assert.match(JSON.parse(command.stdout).error, /command/i);
 });
 
 test("snapshot mode preserves executable check and missing-key failures", (t) => {
@@ -118,6 +107,7 @@ test("snapshot mode preserves executable check and missing-key failures", (t) =>
 	write("sample.ts", original);
 	const failed = run(
 		"--snapshot",
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -129,6 +119,7 @@ test("snapshot mode preserves executable check and missing-key failures", (t) =>
 	assert.equal(JSON.parse(failed.stdout).review, "not_run");
 	const passed = run(
 		"--snapshot",
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -147,6 +138,7 @@ test("snapshot mode rejects source changes made during checks", (t) => {
 	write("sample.ts", original);
 	const result = run(
 		"--snapshot",
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -198,6 +190,7 @@ test("committed-head review ignores dirty local source and uses merge base", (t)
 test("a failed executable check remains failed and skips Jev", (t) => {
 	const { run } = fixture(t);
 	const result = run(
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -213,10 +206,66 @@ test("a failed executable check remains failed and skips Jev", (t) => {
 	assert.match(result.stderr, /check log/);
 });
 
+test("timeout or signal with zero status skips review", async (t) => {
+	const { runReview } = await import("../src/application/review.ts");
+	const { createCliGit } = await import("../src/git/cli.ts");
+	const { nodeProcess } = await import("../src/shared/process.ts");
+	const { repo } = fixture(t);
+	for (const failure of [
+		{ timedOut: true, signal: null },
+		{ timedOut: false, signal: "SIGKILL" as const },
+	]) {
+		let reviewCalls = 0;
+		const result = await runReview(
+			{
+				git: createCliGit(nodeProcess),
+				checkRunner: {
+					run: () => ({
+						status: 0,
+						signal: failure.signal,
+						stdout: Buffer.alloc(0),
+						stderr: Buffer.alloc(0),
+						timedOut: failure.timedOut,
+					}),
+				},
+				reviewClient: {
+					async review() {
+						reviewCalls++;
+						return { model: "unused", findings: [] };
+					},
+				},
+				env: { TYPESAFE_API_KEY: "unused" },
+			},
+			{
+				repo,
+				config: ".assertlens.json",
+				base: "HEAD",
+				snapshot: false,
+				dryRun: false,
+				sandboxed: false,
+				network: false,
+				command: ["unused"],
+			},
+		);
+		assert.equal(result.exitCode, 1);
+		assert.equal(result.kind, "report");
+		assert.equal(result.report.checks, "failed");
+		assert.equal(reviewCalls, 0);
+	}
+});
+
 test("successful local check cannot mask missing API credentials", (t) => {
 	const { run } = fixture(t);
-	const result = run("--json", "--", process.execPath, "-e", "process.exit(0)");
+	const result = run(
+		"--no-sandbox",
+		"--json",
+		"--",
+		process.execPath,
+		"-e",
+		"process.exit(0)",
+	);
 	assert.equal(result.status, 2, result.stderr);
+	assert.match(result.stderr, /not sandboxed|unsafe/i);
 	const report = JSON.parse(result.stdout);
 	assert.equal(report.checks, "passed");
 	assert.equal(report.review, "unavailable");
@@ -226,6 +275,7 @@ test("successful local check cannot mask missing API credentials", (t) => {
 test("changes made during checks invalidate their evidence", (t) => {
 	const { run } = fixture(t);
 	const result = run(
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -236,9 +286,74 @@ test("changes made during checks invalidate their evidence", (t) => {
 	assert.match(JSON.parse(result.stdout).error, /changed during/i);
 });
 
-test("head review and dry-run never execute a supplied command", (t) => {
+test("Bubblewrap setup failure fails the check without calling Jev", async (t) => {
+	const { runReview } = await import("../src/application/review.ts");
+	const { createCliGit } = await import("../src/git/cli.ts");
+	const { nodeProcess } = await import("../src/shared/process.ts");
+	const { repo } = fixture(t);
+	let reviewCalls = 0;
+	const result = await runReview(
+		{
+			git: createCliGit(nodeProcess),
+			checkRunner: {
+				run: () => ({
+					status: null,
+					signal: null,
+					stdout: Buffer.alloc(0),
+					stderr: Buffer.alloc(0),
+					error: new Error("No trusted bwrap executable found."),
+					timedOut: false,
+				}),
+			},
+			reviewClient: {
+				async review() {
+					reviewCalls++;
+					return { model: "unused", findings: [] };
+				},
+			},
+			env: { TYPESAFE_API_KEY: "unused" },
+		},
+		{
+			repo,
+			config: ".assertlens.json",
+			base: "HEAD",
+			snapshot: false,
+			dryRun: false,
+			sandboxed: true,
+			network: false,
+			command: ["unused"],
+		},
+	);
+	assert.equal(result.exitCode, 1);
+	assert.equal(result.kind, "report");
+	assert.equal(result.report.checks, "failed");
+	assert.equal(result.report.review, "not_run");
+	assert.match(result.report.error ?? "", /trusted bwrap/i);
+	assert.equal(reviewCalls, 0);
+});
+
+test("sandbox flags reject unsafe or meaningless combinations", (t) => {
 	const { run } = fixture(t);
-	for (const args of [["--head", "HEAD"], ["--dry-run"]]) {
+	for (const args of [
+		["--sandbox-network"],
+		[
+			"--sandbox-network",
+			"--no-sandbox",
+			"--",
+			process.execPath,
+			"-e",
+			"process.exit(0)",
+		],
+	]) {
+		const result = run("--json", ...args);
+		assert.equal(result.status, 2, result.stderr);
+		assert.match(JSON.parse(result.stdout).error, /sandbox|command/i);
+	}
+});
+
+test("dry-run and direct head mode never execute a supplied command", (t) => {
+	const { run } = fixture(t);
+	for (const args of [["--head", "HEAD", "--no-sandbox"], ["--dry-run"]]) {
 		const result = run(
 			"--json",
 			...args,
@@ -248,7 +363,83 @@ test("head review and dry-run never execute a supplied command", (t) => {
 			"process.exit(19)",
 		);
 		assert.equal(result.status, 2, result.stderr);
-		assert.match(JSON.parse(result.stdout).error, /command/i);
+		assert.match(JSON.parse(result.stdout).error, /command|sandbox/i);
+	}
+});
+
+test("check-only runs committed source without config or Jev", async (t) => {
+	const { runCheckOnly } = await import("../src/application/review.ts");
+	const { createCliGit } = await import("../src/git/cli.ts");
+	const { nodeProcess } = await import("../src/shared/process.ts");
+	const { repo, write } = fixture(t);
+	write(".assertlens.json", "not valid JSON");
+	let observed = "";
+	const result = runCheckOnly(
+		{
+			git: createCliGit(nodeProcess),
+			checkRunner: {
+				run(request) {
+					observed = readFileSync(join(request.cwd, "sample.ts"), "utf8");
+					return {
+						status: 0,
+						signal: null,
+						stdout: Buffer.alloc(0),
+						stderr: Buffer.alloc(0),
+						timedOut: false,
+					};
+				},
+			},
+			env: {},
+		},
+		{
+			repo,
+			head: "HEAD",
+			sandboxed: true,
+			network: false,
+			command: ["unused"],
+		},
+	);
+	assert.equal(result.exitCode, 0);
+	assert.equal(observed, original);
+});
+
+test("check-only returns command failure without review", (t) => {
+	const { run } = fixture(t);
+	const result = run(
+		"--check-only",
+		"--no-sandbox",
+		"--",
+		process.execPath,
+		"-e",
+		"process.exit(7)",
+	);
+	assert.equal(result.status, 1, result.stderr);
+	assert.equal(result.stdout, "");
+	assert.match(result.stderr, /check failed/i);
+	assert.doesNotMatch(result.stderr, /TYPESAFE_API_KEY/);
+});
+
+test("check-only requires a command and rejects report modes", (t) => {
+	const { run } = fixture(t);
+	const missing = run("--check-only");
+	assert.equal(missing.status, 2, missing.stderr);
+	assert.match(missing.stdout, /command/i);
+	for (const args of [
+		["--check-only", "--json", "--", process.execPath],
+		["--check-only", "--dry-run", "--json", "--", process.execPath],
+		[
+			"--check-only",
+			"--head",
+			"HEAD",
+			"--no-sandbox",
+			"--json",
+			"--",
+			process.execPath,
+		],
+	]) {
+		const result = run(...args);
+		assert.equal(result.status, 2, result.stderr);
+		assert.match(JSON.parse(result.stdout).error, /check-only|sandbox/i);
 	}
 });
 
@@ -441,6 +632,51 @@ test("missing, malformed, and contradictory API answers cannot become findings",
 	}
 });
 
+test("aggregate review payloads over 96,000 bytes fail closed", async () => {
+	const { makeRequest } = await import("../src/assertlens.ts");
+	assert.throws(
+		() =>
+			makeRequest(config, {
+				base: "base",
+				head: "working-tree",
+				checks: "not_run",
+				files: [
+					{
+						path: "sample.ts",
+						before: "x".repeat(50_000),
+						after: "x".repeat(50_000),
+					},
+				],
+			}),
+		/State exceeds 96000-byte limit/,
+	);
+	const assertions = Object.fromEntries(
+		Array.from({ length: 20 }, (_, index) => [
+			`claim_${index}`,
+			"x".repeat(1_000),
+		]),
+	);
+	assert.throws(
+		() =>
+			makeRequest(
+				{ ...config, assertions },
+				{
+					base: "base",
+					head: "working-tree",
+					checks: "not_run",
+					files: [
+						{
+							path: "sample.ts",
+							before: "x".repeat(35_000),
+							after: "x".repeat(35_000),
+						},
+					],
+				},
+			),
+		/Request exceeds 96000-byte limit/,
+	);
+});
+
 test("service failure hides response bodies, missing keys make no network request", async (t) => {
 	const { makeRequest, review } = await import("../src/assertlens.ts");
 	const request = makeRequest(config, {
@@ -485,9 +721,11 @@ test("complete CLI review remains advisory and strips service tokens from local 
 	const fetch = t.mock.method(globalThis, "fetch", async () =>
 		Response.json(answer("contradicted")),
 	);
+	t.mock.method(process.stderr, "write", () => true);
 	const exit = await main([
 		"--repo",
 		repo,
+		"--no-sandbox",
 		"--json",
 		"--",
 		process.execPath,
@@ -534,9 +772,9 @@ test("malformed, oversized, and disconnected HTTP responses fail closed", async 
 });
 
 test("modules compose a local review request without the CLI", async (t) => {
-	const { loadConfig } = await import("../src/config.ts");
-	const { repositoryRoot, collectState } = await import("../src/git.ts");
-	const { makeRequest } = await import("../src/jev.ts");
+	const { loadConfig } = await import("../src/config/config.ts");
+	const { repositoryRoot, collectState } = await import("../src/git/cli.ts");
+	const { makeRequest } = await import("../src/jev/request.ts");
 	const { repo } = fixture(t);
 	const root = repositoryRoot(repo);
 	const settings = loadConfig(join(root, ".assertlens.json"));
@@ -552,10 +790,11 @@ test("modules compose a local review request without the CLI", async (t) => {
 
 test("entry point preserves existing public exports", async () => {
 	const cli = await import("../src/assertlens.ts");
-	const jev = await import("../src/jev.ts");
-	const report = await import("../src/report.ts");
-	assert.equal(cli.makeRequest, jev.makeRequest);
-	assert.equal(cli.review, jev.review);
+	const request = await import("../src/jev/request.ts");
+	const http = await import("../src/jev/http.ts");
+	const report = await import("../src/report/report.ts");
+	assert.equal(cli.makeRequest, request.makeRequest);
+	assert.equal(cli.review, http.review);
 	assert.equal(cli.renderReport, report.renderReport);
 });
 
@@ -563,10 +802,32 @@ test("self-review scope includes every runtime module", () => {
 	const settings = JSON.parse(
 		readFileSync(new URL("../.assertlens.json", import.meta.url), "utf8"),
 	);
-	const modules = readdirSync(new URL("../src/", import.meta.url))
+	const modules = readdirSync(new URL("../src/", import.meta.url), {
+		encoding: "utf8",
+		recursive: true,
+	})
 		.filter((path) => path.endsWith(".ts"))
 		.map((path) => `src/${path}`);
+	assert.ok(settings.files.length <= 20);
 	assert.deepEqual([...settings.files].sort(), modules.sort());
+});
+
+test("self-review snapshot fits the aggregate review limit", (t) => {
+	const { repo, git, write, run } = fixture(t);
+	cpSync(new URL("../src/", import.meta.url), join(repo, "src"), {
+		recursive: true,
+	});
+	write(
+		".assertlens.json",
+		readFileSync(new URL("../.assertlens.json", import.meta.url), "utf8"),
+	);
+	git("add", ".");
+	git("commit", "-qm", "Add self-review source");
+	const result = run("--snapshot", "--dry-run", "--json");
+	assert.equal(result.status, 0, result.stdout || result.stderr);
+	const requestBytes = Buffer.byteLength(JSON.stringify(JSON.parse(result.stdout)));
+	assert.ok(requestBytes > 64_000);
+	assert.ok(requestBytes <= 96_000);
 });
 
 test("AssertLens package uses TypeScript directly", () => {
@@ -588,6 +849,8 @@ test("CLI help and reports use AssertLens", async (t) => {
 	assert.match(help.stdout, /^AssertLens —/);
 	assert.match(help.stdout, /Usage: node src\/assertlens\.ts/);
 	assert.match(help.stdout, /default: \.assertlens\.json/);
+	for (const option of ["--check-only", "--sandbox-network", "--no-sandbox"])
+		assert.match(help.stdout, new RegExp(option));
 	assert.match(
 		renderReport({
 			mode: "advisory",
@@ -596,5 +859,58 @@ test("CLI help and reports use AssertLens", async (t) => {
 			findings: [],
 		}),
 		/^# AssertLens — advisory review\n/,
+	);
+});
+
+test("documentation describes sandbox behavior and residual limits", () => {
+	const read = (path: string) =>
+		readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+	const readme = read("README.md");
+	const installation = read("website/docs/installation.md");
+	const cli = read("website/docs/cli-usage.md");
+	const security = read("website/docs/security-and-limits.md");
+	const github = read("website/docs/github-actions.md");
+	for (const text of [readme, installation, cli, security]) {
+		assert.match(text, /Bubblewrap/);
+		assert.match(text, /Git-visible/i);
+	}
+	for (const option of ["--check-only", "--sandbox-network", "--no-sandbox"])
+		assert.match(`${readme}\n${cli}`, new RegExp(option));
+	assert.match(security, /network.*disabled by default/is);
+	assert.match(security, /memory.*disk.*(?:fork|process).*denial.of.service/is);
+	assert.match(
+		`${readme}\n${cli}\n${security}`,
+		/all tracked files.*untracked files.*(?:not ignored|ignore rules)/is,
+	);
+	for (const root of [
+		"/usr",
+		"/bin",
+		"/sbin",
+		"/lib",
+		"/lib64",
+		"/nix/store",
+		"/run/current-system/sw",
+		"/opt",
+	])
+		assert.ok(security.includes(`\`${root}\``), `missing runtime root ${root}`);
+	assert.match(security, /Git path.*UTF-8|UTF-8.*Git path/i);
+	assert.match(readme, /review state and requests are capped at 96,000/i);
+	assert.match(
+		readme,
+		/64,000-byte\s+cap remains for configuration, responses, and individual source reads/i,
+	);
+	assert.match(
+		security,
+		/Serialized review state and outbound request \| 96,000 bytes each/,
+	);
+	assert.match(
+		security,
+		/Configuration, response, and individual source reads \| 64,000 bytes each/,
+	);
+	assert.match(github, /trusted base/i);
+	assert.match(github, /sandbox/i);
+	assert.doesNotMatch(
+		`${readme}\n${installation}\n${cli}\n${security}`,
+		/local checks are not sandboxed|--head[^\n]*refuses commands/i,
 	);
 });

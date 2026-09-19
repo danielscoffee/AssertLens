@@ -21,7 +21,7 @@ The CLI does not depend on the documentation site's packages.
 
 ## Local usage
 
-Requirements: Node 24.12+ and Git. Development checks need the locked dev dependencies:
+Requirements: Node 24.12+ and Git. Default command execution also requires Linux with Bubblewrap (`bwrap`). Development checks need the locked dev dependencies:
 
 ```bash
 npm ci --ignore-scripts
@@ -43,31 +43,41 @@ Set `TYPESAFE_API_KEY` through your secret manager or shell environment; do not 
 credentials in configuration or source. The CLI does not load `.env` files.
 
 ```bash
-# Review selected source even with no changes; run checks before calling Jev.
+# Review selected source even with no changes; run the check in Bubblewrap.
 node src/assertlens.ts --snapshot -- npm test
 
 # Review selected working-tree files against HEAD, including untracked files.
 node src/assertlens.ts --base HEAD
 
-# Run a trusted local check first. Failure exits 1 without calling Jev.
-node src/assertlens.ts --base HEAD -- npm test
+# Check an immutable commit tree before reviewing it.
+node src/assertlens.ts --base origin/main --head HEAD -- npm test
+
+# Run only the sandboxed check, without configuration, credentials, or Jev.
+node src/assertlens.ts --head HEAD --check-only -- npm test
+
+# Explicitly run a trusted local command without isolation.
+node src/assertlens.ts --no-sandbox -- npm test
 
 # Review another repository; configuration is relative to that repository's root.
 node src/assertlens.ts --repo /path/to/project --base origin/main --dry-run
-
-# Review committed branch changes against their merge base; do not execute PR code.
-node src/assertlens.ts --base origin/main --head HEAD --json
 ```
 
-`--` separates the executable command and arguments. Commands run directly, not
-through a shell, with a two-minute timeout. Check output goes to stderr; stdout
-contains one Markdown or JSON report. No command means `checks: not_run`, not passed.
-`--head` and `--dry-run` refuse commands.
+`--` separates the executable command and arguments. By default, commands run without
+a shell inside Bubblewrap, with a two-minute timeout and network disabled. AssertLens
+creates a writable disposable workspace containing Git-visible files: all tracked
+files, even when ignore rules match, plus untracked files that are not ignored. For
+`--head`, it uses the exact committed tree. It omits `.git` and untracked ignored
+files such as host dependencies. Use `--sandbox-network` only when required.
 
-Local commands must be trusted. Removing service tokens from their environment is
-not a sandbox; local code can still access your machine. For untrusted PRs, use
-`--head` to inspect Git objects without checking out or running their contents.
-Use a trusted CLI and trusted configuration when reviewing another repository.
+Check output goes to stderr; stdout contains one Markdown or JSON report. No command
+means `checks: not_run`, not passed. `--dry-run` refuses commands. `--no-sandbox`
+runs in the original local repository, prints a warning, and is incompatible with
+`--head`; use it only for trusted code.
+
+Bubblewrap isolates mounted files, environment, processes, and network by default.
+It does not impose memory, disk, or process-count quotas, so untrusted code can still
+cause denial of service before the timeout. Use trusted CLI and configuration from
+the base branch when reviewing another repository.
 
 ## Assertions and scope
 
@@ -97,9 +107,10 @@ your test suite. Prefer narrow, falsifiable claims to â€œthis code is correct.â€
 - Secret-like paths are rejected as an accident guard, **not a secret scanner**.
   Do not select files containing credentials or personal data. Inspect dry-run output
   before sending private code; avoid saving sensitive payloads in shared logs.
-- State, request, response, and individual source reads are capped at 64,000 bytes.
-  Oversized input fails instead of silently dropping context. This byte limit is
-  not a token estimate; server context-limit errors also make review unavailable.
+- Serialized review state and requests are capped at 96,000 bytes. A 64,000-byte
+  cap remains for configuration, responses, and individual source reads. Oversized
+  input fails instead of silently dropping context. These byte limits are not token
+  estimates; server context-limit errors also make review unavailable.
 
 For each assertion, Jev chooses `supported`, `contradicted`, or `insufficient`.
 Insufficient evidence and confidence below 0.8 become `needs_review`. Reports retain
@@ -120,12 +131,14 @@ Requests have a 30-second timeout and are not automatically retried.
 
 Two workflows keep execution and secret-bearing review separate:
 
-- **`CI`** checks the PR merge checkout with `npm run typecheck` and `npm test`.
-  No repository secrets are provided; checkout credentials are not retained.
-- **`Jev advisory review`** uses `pull_request`, checks out the trusted base
-  SHA, and fetches PR commits **as data only**. The CLI and policy come from the base
-  commit. It never checks out PR source, installs PR dependencies, runs PR tests,
-  consumes PR artifacts, or restores caches. Results appear in the job summary.
+- **`CI`** checks out trusted base tooling without persisting credentials, fetches the
+  immutable PR commit using step-scoped temporary Git configuration, then runs
+  typecheck and tests against a disposable Git-visible tree through Bubblewrap. No
+  repository secrets are provided.
+- **`Jev advisory review`** follows the same trusted-base fetch boundary, runs
+  `npm test` inside Bubblewrap, and only then asks Jev from the trusted parent process.
+  The TypeSafe key is scoped to that final step and never enters the sandbox. Neither
+  workflow checks PR source out on the host, consumes PR artifacts, or restores caches.
 
 Add repository Actions secret `TYPESAFE_API_KEY`, then put these files on your trusted
 base branch to enable review. This sends the configured source scope to TypeSafe;
@@ -141,29 +154,32 @@ account budgets accordingly. A PR that moves during fetching is rejected rather
 than reviewed at the wrong SHA.
 
 Use **`CI / check`** for required branch protection, not the advisory job. The review
-job records `checks: not_run`: separate CI results are not imported or trusted as
-model evidence. Missing key/service failure makes the advisory job fail visibly;
-a completed review with contradictions remains advisory. Draft PRs are skipped.
+job records its own sandboxed `npm test` result; separate CI results are not imported
+or trusted as model evidence. Missing key/service failure makes the advisory job fail
+visibly; a completed review with contradictions remains advisory. Draft PRs are skipped.
 Changes only outside configured files produce an unavailable review, not a claim
 that the whole PR was checked. The supplied workflow reads policy/tooling from the
 base branch. Workflow definitions themselves can be edited in same-repository PRs;
 restrict contributor access and review `.github/workflows/` changes carefully.
 
-To adopt this in another TypeScript repository, keep all `src/*.ts` modules together,
-copy the trusted review workflow and your own `.assertlens.json`, and adjust the workflow's
-entry path if relocating them. Keep that repository's normal CI. The review CLI
-itself needs only Node and Git, not `npm install`.
+To adopt this in another TypeScript repository, copy the trusted CLI modules, review
+workflow, and your own `.assertlens.json`; adjust the workflow's entry path if needed.
+Keep that repository's normal CI. The CLI has no runtime npm dependencies, but
+sandboxed commands require Linux and Bubblewrap.
 
 ## Modules
 
 | File | Responsibility |
 | --- | --- |
-| `src/assertlens.ts` | CLI arguments, executable checks, and orchestration |
-| `src/config.ts` | Configuration parsing and validation |
-| `src/git.ts` | Repository discovery and bounded source snapshots |
-| `src/jev.ts` | Typed questions, HTTP requests, and answer validation |
-| `src/report.ts` | Report types and Markdown rendering |
-| `src/validation.ts` | Shared size limits and value guards |
+| `src/assertlens.ts` | CLI parsing and adapter composition |
+| `src/application/` | Review and check-only orchestration |
+| `src/check/` | Check-runner port and explicit direct adapter |
+| `src/config/` | Configuration parsing and validation |
+| `src/git/` | Git adapter, bounded review state, and disposable workspaces |
+| `src/jev/` | Request construction, HTTP adapter, and answer validation |
+| `src/report/` | Report types and Markdown rendering |
+| `src/sandbox/` | Bubblewrap adapter and isolation policy |
+| `src/shared/` | Shared process adapter, size limits, and guards |
 
 Types live with the modules that own them. The `src/assertlens.ts` entry point
 exports `makeRequest`, `review`, and `renderReport`. The self-review configuration

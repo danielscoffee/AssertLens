@@ -16,21 +16,27 @@ jobs:
   review:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out trusted base tooling and policy
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
-          # Read-only token retained for the following fetch; no PR code executes.
-          persist-credentials: true
+          persist-credentials: false
       - name: Fetch PR objects without checking them out
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+          AUTH_HEADER="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$AUTH_HEADER"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $AUTH_HEADER" \
+            git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+          unset AUTH_HEADER GITHUB_TOKEN
           if [ "$(git rev-parse FETCH_HEAD)" != "$PR_HEAD_SHA" ]; then
             echo 'PR changed during fetch. Review unavailable; rerun this workflow.' >> "$GITHUB_STEP_SUMMARY"
             exit 2
@@ -39,10 +45,20 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
-      - name: Review immutable PR source as data
+      - name: Install and preflight Bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --unshare-user --unshare-pid --disable-userns -- /bin/true
+      - name: Run trusted Bubblewrap integration smoke
+        run: node --test --test-name-pattern='real Bubblewrap' test/sandbox.test.ts
+      - name: Sandbox tests and review immutable PR source
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          node src/assertlens.ts --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+          node src/assertlens.ts --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" -- npm test >> "$GITHUB_STEP_SUMMARY"
