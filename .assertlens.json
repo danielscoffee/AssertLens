@@ -2,6 +2,8 @@
   "model": "jev-1.13.0",
   "files": [
     "src/assertlens.ts",
+    "src/check/check.ts",
+    "src/check/direct.ts",
     "src/config/config.ts",
     "src/git/cli.ts",
     "src/git/git.ts",
@@ -11,6 +13,7 @@
     "src/jev/request.ts",
     "src/jev/response.ts",
     "src/report/report.ts",
+    "src/shared/process.ts",
     "src/shared/validation.ts"
   ],
   "assertions": {
