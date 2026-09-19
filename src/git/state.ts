@@ -1,16 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Config } from "./config.ts";
-import { bounded, MAX_BYTES, object } from "./validation.ts";
-
-export type Checks = "not_run" | "passed" | "failed";
-export type State = {
-	base: string;
-	head: string;
-	checks: Checks;
-	files: { path: string; before: string | null; after: string | null }[];
-};
+import type { Config } from "../config/config.ts";
+import { bounded, MAX_BYTES, object } from "../shared/validation.ts";
+import type { GitCommand, State } from "./git.ts";
 
 function source(bytes: Buffer): string {
 	if (bytes.includes(0)) throw new Error("Binary source is not supported.");
@@ -24,28 +16,8 @@ function source(bytes: Buffer): string {
 	}
 }
 
-function git(repo: string, ...args: string[]): Buffer {
-	try {
-		return execFileSync("git", ["--no-replace-objects", ...args], {
-			cwd: repo,
-			maxBuffer: MAX_BYTES,
-			timeout: 10_000,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-	} catch {
-		throw new Error(
-			"Git read failed: check repository, committed base/head, fetch depth, and size limit.",
-		);
-	}
-}
-
-export function repositoryRoot(path: string): string {
-	return realpathSync(
-		git(resolve(path), "rev-parse", "--show-toplevel").toString("utf8").trim(),
-	);
-}
-
 function committedSource(
+	git: GitCommand,
 	repo: string,
 	ref: string,
 	path: string,
@@ -75,6 +47,7 @@ function workingSource(repo: string, path: string): string | null {
 }
 
 export function collectState(
+	git: GitCommand,
 	repo: string,
 	config: Config,
 	baseRef: string,
@@ -106,9 +79,9 @@ export function collectState(
 	// ponytail: explicit files only; add dependency discovery when missed-context cases justify it.
 	const files = config.files.map((path) => ({
 		path,
-		before: committedSource(repo, base, path),
+		before: committedSource(git, repo, base, path),
 		after: headRef
-			? committedSource(repo, head, path)
+			? committedSource(git, repo, head, path)
 			: workingSource(repo, path),
 	}));
 	if (files.some((file) => file.before === null && file.after === null))

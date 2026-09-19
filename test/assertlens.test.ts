@@ -534,9 +534,9 @@ test("malformed, oversized, and disconnected HTTP responses fail closed", async 
 });
 
 test("modules compose a local review request without the CLI", async (t) => {
-	const { loadConfig } = await import("../src/config.ts");
-	const { repositoryRoot, collectState } = await import("../src/git.ts");
-	const { makeRequest } = await import("../src/jev.ts");
+	const { loadConfig } = await import("../src/config/config.ts");
+	const { repositoryRoot, collectState } = await import("../src/git/cli.ts");
+	const { makeRequest } = await import("../src/jev/request.ts");
 	const { repo } = fixture(t);
 	const root = repositoryRoot(repo);
 	const settings = loadConfig(join(root, ".assertlens.json"));
@@ -552,10 +552,11 @@ test("modules compose a local review request without the CLI", async (t) => {
 
 test("entry point preserves existing public exports", async () => {
 	const cli = await import("../src/assertlens.ts");
-	const jev = await import("../src/jev.ts");
-	const report = await import("../src/report.ts");
-	assert.equal(cli.makeRequest, jev.makeRequest);
-	assert.equal(cli.review, jev.review);
+	const request = await import("../src/jev/request.ts");
+	const http = await import("../src/jev/http.ts");
+	const report = await import("../src/report/report.ts");
+	assert.equal(cli.makeRequest, request.makeRequest);
+	assert.equal(cli.review, http.review);
 	assert.equal(cli.renderReport, report.renderReport);
 });
 
@@ -563,7 +564,10 @@ test("self-review scope includes every runtime module", () => {
 	const settings = JSON.parse(
 		readFileSync(new URL("../.assertlens.json", import.meta.url), "utf8"),
 	);
-	const modules = readdirSync(new URL("../src/", import.meta.url))
+	const modules = readdirSync(new URL("../src/", import.meta.url), {
+		encoding: "utf8",
+		recursive: true,
+	})
 		.filter((path) => path.endsWith(".ts"))
 		.map((path) => `src/${path}`);
 	assert.deepEqual([...settings.files].sort(), modules.sort());

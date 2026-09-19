@@ -1,5 +1,5 @@
-import type { Checks } from "./git.ts";
-import type { Finding } from "./jev.ts";
+import type { Checks } from "../git/git.ts";
+import type { Finding } from "../jev/jev.ts";
 
 export type Report = {
 	mode: "advisory";

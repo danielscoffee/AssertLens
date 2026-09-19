@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { bounded, object } from "./validation.ts";
+import { bounded, object } from "../shared/validation.ts";
 
 const MODEL = "jev-1.13.0";
 

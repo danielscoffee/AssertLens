@@ -2,13 +2,15 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { loadConfig } from "./config.ts";
-import { collectState, repositoryRoot } from "./git.ts";
-import { makeRequest, review } from "./jev.ts";
-import { renderReport, type Report } from "./report.ts";
+import { loadConfig } from "./config/config.ts";
+import { collectState, repositoryRoot } from "./git/cli.ts";
+import { review } from "./jev/http.ts";
+import { makeRequest } from "./jev/request.ts";
+import { renderReport, type Report } from "./report/report.ts";
 
-export { makeRequest, review } from "./jev.ts";
-export { renderReport } from "./report.ts";
+export { review } from "./jev/http.ts";
+export { makeRequest } from "./jev/request.ts";
+export { renderReport } from "./report/report.ts";
 
 const HELP = `AssertLens — local checks + advisory Jev review (Node 24.12+)\n
 Usage: node src/assertlens.ts [options] [-- trusted-command args...]\n
