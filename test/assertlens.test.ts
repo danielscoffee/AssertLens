@@ -594,6 +594,48 @@ test("Markdown retains the raw choice when uncertainty changes the verdict", asy
 	});
 	assert.match(report, /needs_review/);
 	assert.match(report, /choice: contradicted/);
+	assert.match(
+		report,
+		/Leans contradicted, but confidence 0\.70 is below the 0\.80 advisory threshold/,
+	);
+});
+
+test("Markdown explains each verdict and summarizes counts", async () => {
+	const { renderReport } = await import("../src/assertlens.ts");
+	const finding = (
+		id: string,
+		choice: "supported" | "contradicted" | "insufficient",
+		verdict: "supported" | "contradicted" | "needs_review",
+	) => ({
+		id,
+		choice,
+		verdict,
+		confidence: 0.9,
+		probabilities: {
+			supported: choice === "supported" ? 0.9 : 0.05,
+			contradicted: choice === "contradicted" ? 0.9 : 0.05,
+			insufficient: choice === "insufficient" ? 0.9 : 0.05,
+		},
+	});
+	const report = renderReport({
+		mode: "advisory",
+		checks: "passed",
+		review: "complete",
+		assertions: { kept: "Users under 18 are *rejected*." },
+		findings: [
+			finding("kept", "supported", "supported"),
+			finding("broken", "contradicted", "contradicted"),
+			finding("unclear", "insufficient", "needs_review"),
+		],
+	});
+	assert.match(
+		report,
+		/Review: \*\*complete\*\* \(1 contradicted, 1 needs_review, 1 supported\)/,
+	);
+	assert.match(report, /> Users under 18 are \\\*rejected\\\*\./);
+	assert.match(report, /supports this assertion \(confidence 0\.90\)/);
+	assert.match(report, /contains a counterexample \(confidence 0\.90\)/);
+	assert.match(report, /Not enough evidence .*Add missing dependencies/);
 });
 
 test("missing, malformed, and contradictory API answers cannot become findings", async (t) => {

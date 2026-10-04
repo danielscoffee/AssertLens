@@ -114,7 +114,9 @@ your test suite. Prefer narrow, falsifiable claims to â€œthis code is correct.â€
 
 For each assertion, Jev chooses `supported`, `contradicted`, or `insufficient`.
 Insufficient evidence and confidence below 0.8 become `needs_review`. Reports retain
-raw choice, confidence, and all three probabilities. The threshold is an
+raw choice, confidence, and all three probabilities. Markdown reports add a fixed
+plain-language explanation and next step derived from those values; Jev returns no
+rationale, and no other model writes one. The threshold is an
 **uncalibrated advisory starting point**. There is no model-based merge-blocking mode.
 
 Missing keys, malformed/missing answers, invalid probabilities, network failures,

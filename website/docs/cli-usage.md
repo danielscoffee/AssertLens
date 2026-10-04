@@ -109,6 +109,11 @@ Reports retain each assertion's raw choice, confidence, and probabilities for
 `supported`, `contradicted`, and `insufficient`. A raw choice of `insufficient`, or
 confidence below 0.8, produces the verdict `needs_review`.
 
+Markdown reports start with a verdict tally, then explain each finding in fixed,
+code-generated wording: why it needs review (insufficient evidence or low
+confidence) and what to do next. Jev returns no rationale text, so the report
+does not invent one. JSON reports contain only the raw fields.
+
 | Exit | Meaning |
 | --- | --- |
 | `0` | Advisory review, help, or dry run completed. **Not approval.** |
