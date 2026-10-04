@@ -1,13 +1,10 @@
-import {
-	bounded,
-	MAX_BYTES,
-	MAX_REVIEW_BYTES,
-} from "../shared/validation.ts";
+import { MAX_BYTES } from "../shared/validation.ts";
 import type {
 	ReviewClient,
 	ReviewRequest,
 	ReviewResult,
 } from "./jev.ts";
+import { withinBudget } from "./request.ts";
 import { parseResponse } from "./response.ts";
 
 export async function review(
@@ -16,6 +13,7 @@ export async function review(
 ): Promise<ReviewResult> {
 	if (!apiKey.trim())
 		throw new Error("TYPESAFE_API_KEY is not set; review unavailable.");
+	const body = JSON.stringify(withinBudget(request));
 	let raw: unknown;
 	try {
 		const response = await fetch("https://api.typesafe.ai/v1/systemone", {
@@ -26,11 +24,7 @@ export async function review(
 				Authorization: `Bearer ${apiKey}`,
 				"Content-Type": "application/json",
 			},
-			body: bounded(
-				JSON.stringify(request),
-				"Request",
-				MAX_REVIEW_BYTES,
-			),
+			body,
 		});
 		if (!response.ok)
 			throw new Error(

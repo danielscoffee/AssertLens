@@ -837,49 +837,38 @@ test("missing, malformed, and contradictory API answers cannot become findings",
 	}
 });
 
-test("aggregate review payloads over 96,000 bytes fail closed", async () => {
-	const { makeRequest } = await import("../src/assertlens.ts");
+test("requests must fit the model's token budget", async (t) => {
+	const { makeRequest, review } = await import("../src/assertlens.ts");
+	const state = (bytes: number) => ({
+		base: "base",
+		head: "working-tree",
+		checks: "not_run" as const,
+		files: [{ path: "sample.ts", before: null, after: "x".repeat(bytes) }],
+	});
+	assert.ok(makeRequest(config, state(90_000)));
+	for (const model of ["jev-1.13.0", "jev-latest"])
+		assert.throws(
+			() => makeRequest({ ...config, model }, state(96_000)),
+			/^Error: Scope "age_boundary" needs ~32\.\dk of 32k tokens \(state ~32k \+ longest question ~0\.\dk\)\. Narrow its files or split the assertion\.$/,
+		);
+	const assertions = (count: number, length: number) =>
+		Object.fromEntries(
+			Array.from({ length: count }, (_, index) => [
+				`claim_${index}`,
+				"y".repeat(length),
+			]),
+		);
+	assert.ok(makeRequest({ ...config, assertions: assertions(20, 1_000) }, state(70_000)));
 	assert.throws(
-		() =>
-			makeRequest(config, {
-				base: "base",
-				head: "working-tree",
-				checks: "not_run",
-				files: [
-					{
-						path: "sample.ts",
-						before: "x".repeat(50_000),
-						after: "x".repeat(50_000),
-					},
-				],
-			}),
-		/State exceeds 96000-byte limit/,
+		() => makeRequest({ ...config, assertions: assertions(20, 6_000) }, state(80_000)),
+		/needs ~\d+(\.\d)?k of 64k tokens across all questions/,
 	);
-	const assertions = Object.fromEntries(
-		Array.from({ length: 20 }, (_, index) => [
-			`claim_${index}`,
-			"x".repeat(1_000),
-		]),
+	const fetch = t.mock.method(globalThis, "fetch", async () => Response.json({}));
+	await assert.rejects(
+		review({ ...makeRequest(config, state(10)), state: state(96_000) }, "test-only-token"),
+		/of 32k tokens/,
 	);
-	assert.throws(
-		() =>
-			makeRequest(
-				{ ...config, assertions },
-				{
-					base: "base",
-					head: "working-tree",
-					checks: "not_run",
-					files: [
-						{
-							path: "sample.ts",
-							before: "x".repeat(35_000),
-							after: "x".repeat(35_000),
-						},
-					],
-				},
-			),
-		/Request exceeds 96000-byte limit/,
-	);
+	assert.equal(fetch.mock.callCount(), 0);
 });
 
 test("service failure hides response bodies, missing keys make no network request", async (t) => {
@@ -1003,7 +992,7 @@ test("entry point preserves existing public exports", async () => {
 	assert.equal(cli.renderReport, report.renderReport);
 });
 
-test("self-review scopes cover every runtime module within the request limit", (t) => {
+test("self-review scopes cover every runtime module within the token budget", (t) => {
 	const { repo, git, write, run } = fixture(t);
 	cpSync(new URL("../src/", import.meta.url), join(repo, "src"), {
 		recursive: true,
@@ -1020,8 +1009,6 @@ test("self-review scopes cover every runtime module within the request limit", (
 		result.stdout,
 	);
 	assert.ok(requests.length > 1);
-	for (const request of requests)
-		assert.ok(Buffer.byteLength(JSON.stringify(request)) <= 96_000);
 	const modules = readdirSync(new URL("../src/", import.meta.url), {
 		encoding: "utf8",
 		recursive: true,
@@ -1098,14 +1085,14 @@ test("documentation describes sandbox behavior and residual limits", () => {
 	])
 		assert.ok(security.includes(`\`${root}\``), `missing runtime root ${root}`);
 	assert.match(security, /Git path.*UTF-8|UTF-8.*Git path/i);
-	assert.match(readme, /review state and requests are capped at 96,000/i);
+	assert.match(readme, /32k tokens for state\s+plus the longest question/i);
 	assert.match(
 		readme,
 		/64,000-byte\s+cap remains for configuration, responses, and individual source reads/i,
 	);
 	assert.match(
 		security,
-		/Serialized review state and outbound request \| 96,000 bytes each/,
+		/Request token budget \| Model context: jev-1\.13 allows 32k tokens/,
 	);
 	assert.match(
 		security,

@@ -68,7 +68,7 @@ the committed tree, then executes it in Bubblewrap. The supplied
 | Files per scope | At most 50 after folder expansion |
 | Named assertions | 1–20 |
 | Assertion text | Nonblank, at most 1,000 characters |
-| Serialized review state and outbound request | 96,000 bytes each |
+| Request token budget | Model context: jev-1.13 allows 32k tokens for state plus the longest question and 64k for state plus all questions, estimated as bytes ÷ 3 |
 | Configuration, response, and individual source reads | 64,000 bytes each |
 | Executable check | Two minutes |
 | Jev request | One per distinct scope, sent sequentially; 30 seconds each; no automatic retries |
@@ -76,9 +76,9 @@ the committed tree, then executes it in Bubblewrap. The supplied
 Regular UTF-8 source files only: no symlinks, binaries, traversal, globs, or
 submodules. Git path names used for sandbox staging must also be valid UTF-8;
 non-UTF-8 Git paths are rejected. Oversized input fails instead of silently dropping
-context. These byte
-limits are not token estimates; server context-limit errors also make a review
-unavailable.
+context. The token estimate is conservative but not exact; server context-limit
+errors also make a review unavailable. Aliases such as `jev-latest` and unknown
+models use the `jev-1.13` budget.
 
 No dependency discovery occurs. Omitted source and tests remain outside the review
 scope, even when selected files import them.

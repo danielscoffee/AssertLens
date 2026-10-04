@@ -131,10 +131,13 @@ your test suite. Prefer narrow, falsifiable claims to “this code is correct.�
 - Secret-like paths are rejected as an accident guard, **not a secret scanner**.
   Do not select files containing credentials or personal data. Inspect dry-run output
   before sending private code; avoid saving sensitive payloads in shared logs.
-- Serialized review state and requests are capped at 96,000 bytes per scope. A 64,000-byte
+- Each request must fit its model's token budget: `jev-1.13` allows 32k tokens for state
+  plus the longest question and 64k tokens for state plus all questions. Tokens are
+  estimated conservatively as bytes ÷ 3; aliases and unknown models use the `jev-1.13`
+  budget. An oversized scope fails before sending, with its estimated tokens. A 64,000-byte
   cap remains for configuration, responses, and individual source reads. Oversized
-  input fails instead of silently dropping context. These byte limits are not token
-  estimates; server context-limit errors also make review unavailable.
+  input fails instead of silently dropping context; server context-limit errors also
+  make review unavailable.
 
 For each assertion, Jev chooses `supported`, `contradicted`, or `insufficient`.
 Insufficient evidence and confidence below 0.8 become `needs_review`. Reports retain

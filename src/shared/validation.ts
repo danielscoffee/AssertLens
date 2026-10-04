@@ -1,5 +1,4 @@
 export const MAX_BYTES = 64_000;
-export const MAX_REVIEW_BYTES = 96_000;
 
 export function object(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
