@@ -10,7 +10,18 @@ description: Set up AssertLens and inspect your first review payload without an 
 - Linux with Bubblewrap (`bwrap`) for default command execution.
 - A TypeSafe API key for live Jev reviews. Help, dry runs, and `--check-only` need no key.
 
-Run the CLI from a trusted checkout. It needs only Node and Git; development checks
+Install the published CLI from npm:
+
+```bash
+npm install --global assertlens
+assertlens --help
+```
+
+The examples below use a source checkout and `node src/assertlens.ts`; an installed
+`assertlens` accepts the same options. Images and the reusable action are described
+in [GitHub Actions](github-actions.md).
+
+Or run the CLI from a trusted checkout. It needs only Node and Git; development checks
 require the locked dev dependencies.
 
 ```bash
@@ -79,5 +90,5 @@ node src/assertlens.ts --repo /path/to/project --base origin/main --dry-run
 ```
 
 Configuration defaults to `.assertlens.json` in the target repository's root. Its base
-reference must already exist locally, and at least one selected file must differ
-unless `--snapshot` is supplied. The CLI does not fetch remote references for you.
+reference must already exist locally. Without `--snapshot`, at least one selected file
+must differ; otherwise review is `not_run` and the CLI exits `3`. The CLI does not fetch remote references for you.

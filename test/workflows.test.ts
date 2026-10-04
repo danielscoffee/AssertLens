@@ -14,6 +14,20 @@ const docs = readFileSync(
 	new URL("../.github/workflows/docs.yml", import.meta.url),
 	"utf8",
 );
+const image = readFileSync(
+	new URL("../.github/workflows/image.yml", import.meta.url),
+	"utf8",
+);
+const release = readFileSync(
+	new URL("../.github/workflows/release.yml", import.meta.url),
+	"utf8",
+);
+const publishImage = readFileSync(
+	new URL("../.github/scripts/publish-image.sh", import.meta.url),
+	"utf8",
+);
+const action = readFileSync(new URL("../action.yml", import.meta.url), "utf8");
+const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
 
 const immutableFetch =
 	/git fetch --no-tags origin "refs\/pull\/\$PR_NUMBER\/head"[\s\S]*"\$\(git rev-parse FETCH_HEAD\)" != "\$PR_HEAD_SHA"/;
@@ -86,6 +100,10 @@ test("trusted Jev review sandboxes PR tests and scopes its secret to final step"
 		review,
 		/git (checkout|switch)|npm (ci|install)|download-artifact|actions\/cache/,
 	);
+	assert.match(
+		review,
+		/\|\| status=\$\?\n\s+if \[ "\$status" -eq 3 \]; then\n\s+echo '::notice::[^']+'\n\s+exit 0\n\s+fi\n\s+exit "\$status"/,
+	);
 	assert.equal(
 		(
 			review.match(
@@ -128,4 +146,61 @@ test("docs deploy to Pages only from main with job-scoped write access", () => {
 			action,
 			/^actions\/(checkout|setup-node|upload-pages-artifact|deploy-pages)@[a-f0-9]{40}$/,
 		);
+});
+
+test("image publishes to GHCR only from main with job-scoped write access", () => {
+	const [build, publish] = image.split("\n  publish:\n");
+	assert.match(build, /permissions:\n {2}contents: read/);
+	assert.doesNotMatch(build, /: write|docker (login|push)/);
+	assert.match(build, /--security-opt seccomp=unconfined --security-opt apparmor=unconfined/);
+	assert.match(
+		publish,
+		/if: \$\{\{ github\.event_name != 'pull_request' && github\.ref == 'refs\/heads\/main' \}\}/,
+	);
+	assert.match(publish, /permissions:\n {6}contents: read\n {6}packages: write/);
+	assert.match(publish, /run: \.github\/scripts\/publish-image\.sh main "sha-/);
+	assert.match(publishImage, /^set -euo pipefail$/m);
+	assert.match(publishImage, /docker login ghcr\.io --username "\$GITHUB_ACTOR" --password-stdin/);
+	assert.doesNotMatch(image, /pull_request_target|workflow_run|secrets\.|tags:/);
+	for (const workflow of [image, action, release])
+		for (const [, uses] of workflow.matchAll(/uses: (\S+)/g))
+			assert.match(uses, /^(\.\/|actions\/(checkout|setup-node)@[a-f0-9]{40})$/);
+	assert.match(dockerfile, /^FROM node:24-[\w-]+@sha256:[a-f0-9]{64}$/m);
+	assert.match(dockerfile, /^USER node$/m);
+});
+
+test("composite action passes inputs through the environment, not script text", () => {
+	assert.match(action, /using: composite/);
+	const scripts = [...action.matchAll(/run: \|\n((?: {8}.*\n?)+)/g)].map(
+		([, script]) => script,
+	);
+	assert.equal(scripts.length, 2);
+	for (const script of scripts) assert.doesNotMatch(script, /\$\{\{/);
+	assert.match(action, /node "\$GITHUB_ACTION_PATH\/src\/assertlens\.ts" "\$\{args\[@\]\}"/);
+	assert.doesNotMatch(action, /eval |bash -c|sh -c|--no-sandbox/);
+	assert.match(action, /\|\| status=\$\?\n\s+if \[ "\$status" -eq 3 \]; then/);
+});
+
+test("semver tags gate releases and scope each deploy's write access", () => {
+	assert.match(release, /on:\n {2}push:\n {4}tags: \["v\*"\]\n\n/);
+	assert.doesNotMatch(release, /pull_request|workflow_dispatch|secrets\.|NPM_TOKEN|NODE_AUTH_TOKEN/);
+	const jobs = Object.fromEntries(
+		release
+			.split(/\n {2}(?=[a-z-]+:\n {4}(?:runs-on|needs))/)
+			.slice(1)
+			.map((job) => [job.slice(0, job.indexOf(":")), job]),
+	);
+	assert.deepEqual(Object.keys(jobs), ["verify", "npm", "image", "github-release"]);
+	assert.doesNotMatch(jobs.verify, /permissions:|: write/);
+	assert.match(jobs.verify, /does not match package\.json version/);
+	assert.match(jobs.verify, /git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
+	assert.match(jobs.verify, /npm run typecheck\n\s+npm test\n\s+npm run build/);
+	assert.match(jobs.npm, /needs: verify/);
+	assert.match(jobs.npm, /environment:\n {6}name: npm/);
+	assert.match(jobs.npm, /permissions:\n {6}contents: read\n {6}id-token: write\n/);
+	assert.match(jobs.npm, /npm publish --access public --tag "\$NPM_TAG"/);
+	assert.match(jobs.image, /environment:\n {6}name: ghcr/);
+	assert.match(jobs.image, /permissions:\n {6}contents: read\n {6}packages: write\n/);
+	assert.match(jobs["github-release"], /needs: \[verify, npm, image\]/);
+	assert.match(jobs["github-release"], /permissions:\n {6}contents: write\n/);
 });

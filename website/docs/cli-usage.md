@@ -27,7 +27,8 @@ node src/assertlens.ts [options] [-- command args...]
 
 An existing Git commit is required for review. All references must be available
 locally. By default, at least one selected file must differ from the base;
-assertions whose files are all unchanged are skipped and listed as unchanged.
+assertions whose files are all unchanged are skipped and listed as unchanged. When
+every scope is unchanged, review is `not_run` and the CLI exits `3`.
 `--snapshot` reviews every scope.
 
 ## Working-tree review
@@ -120,7 +121,8 @@ does not invent one. JSON reports contain only the raw fields.
 | --- | --- |
 | `0` | Advisory review, help, or dry run completed. **Not approval.** |
 | `1` | Executable check failed, timed out, or could not start. Jev was not called. |
-| `2` | Invalid input or unavailable/incomplete review, including unchanged scope without `--snapshot`. |
+| `2` | Invalid input or unavailable/incomplete review. |
+| `3` | No selected file changed, so review is `not_run`. Any command still ran and passed. **Not approval.** |
 
 A completed review can contain contradictions and still exit `0`. Read its findings;
 do not treat the exit code as a model-based merge gate.
