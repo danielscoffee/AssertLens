@@ -22,8 +22,8 @@
     "src/shared/validation.ts"
   ],
   "assertions": {
-    "check_failure": "A failed executable check makes the CLI exit nonzero and prevents the Jev API call.",
-    "invalid_evidence": "Missing or malformed Jev answers produce an unavailable review, not a supported assertion.",
-    "advisory_only": "Jev judgments cannot override failed executable checks or automatically authorize a merge."
+    "check_failure": "In runReview, a check that runs and fails returns exitCode 1 before reviewClient.review is called; main returns that exit code.",
+    "invalid_evidence": "If reviewClient.review throws, including parseResponse rejecting a missing, unexpected, or malformed answer, runReview returns review unavailable, exitCode 2, and no findings.",
+    "advisory_only": "A completed runReview always returns exitCode 0; finding verdicts never change the checks status or the exit code."
   }
 }
