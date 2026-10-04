@@ -95,8 +95,13 @@ jobs:
           package-manager-cache: false
       - name: Publish with trusted publishing and provenance
         env:
+          VERSION: ${{ needs.verify.outputs.version }}
           NPM_TAG: ${{ needs.verify.outputs.npm-tag }}
         run: |
+          if npm view "assertlens@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::assertlens@$VERSION is already on npm; skipping publish."
+            exit 0
+          fi
           npm ci --ignore-scripts
           npm publish --access public --tag "$NPM_TAG"
 
@@ -129,11 +134,17 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Create GitHub release
+      - name: Draft GitHub Marketplace release
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
-          flags=(--repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$GITHUB_REF_NAME")
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::Release $GITHUB_REF_NAME already exists; leaving it unchanged."
+            exit 0
+          fi
+          # Marketplace listing needs the web UI, so publish this draft there with the Marketplace box checked.
+          flags=(--repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" --draft)
           if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" "${flags[@]}"
+          echo "Draft release $GITHUB_REF_NAME created. Publish it with **Publish this Action to the GitHub Marketplace** checked." >> "$GITHUB_STEP_SUMMARY"

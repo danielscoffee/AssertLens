@@ -98,7 +98,7 @@ through the trusted Bubblewrap runner.
 ## Reusable action
 
 Or use the reusable composite action, which runs the CLI from the action's own pinned
-checkout. Pin it to a full commit SHA. Its command is a JSON array run without a shell
+checkout. Pin it to a full commit SHA, or to a release tag such as `v0.1.0`. Its command is a JSON array run without a shell
 in Bubblewrap, and the report is also appended to the job summary:
 
 ```yaml
@@ -155,15 +155,22 @@ and builds before deploying:
 | --- | --- | --- |
 | npm `assertlens` | dist-tag `latest` | dist-tag `next` |
 | GHCR image | `1.2.3`, `1.2`, `1`, `latest` | `1.3.0-rc.1` |
-| GitHub release | Release with generated notes | Prerelease |
+| GitHub release | Draft with generated notes | Draft prerelease |
 
 npm and GHCR deploy through the `npm` and `ghcr` GitHub environments, so each deploy
 appears under the repository's deployments. npm uses trusted publishing (OIDC) with
 provenance; no npm token is stored. Floating image tags assume versions are released
 in increasing order.
 
+GitHub Marketplace listing is only possible in the web UI, so the workflow leaves a
+draft release. Open it, check **Publish this Action to the GitHub Marketplace**, pick
+a category, and publish. The first listing requires accepting the Marketplace
+Developer Agreement, and publishing requires two-factor authentication. A version
+already on npm and an existing release are skipped, so reruns and manually
+drafted releases are safe.
+
 One-time setup: publish the first version manually with `npm publish --access public`
 from a clean checkout of `main`. Then add a trusted publisher on npmjs.com with user
 `danielscoffee`, repository `AssertLens`, workflow `release.yml`, and environment
-`npm`. Automated releases start from the next version. Consider a tag ruleset limiting
+`npm`. Later versions publish automatically; the already published version is skipped. Consider a tag ruleset limiting
 who can push `v*` tags, and required reviewers on both environments.
