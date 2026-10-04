@@ -26,7 +26,9 @@ node src/assertlens.ts [options] [-- command args...]
 | `--help` | Show usage and options. |
 
 An existing Git commit is required for review. All references must be available
-locally. By default, at least one selected file must differ from the base.
+locally. By default, at least one selected file must differ from the base;
+assertions whose files are all unchanged are skipped and listed as unchanged.
+`--snapshot` reviews every scope.
 
 ## Working-tree review
 
@@ -85,7 +87,7 @@ Shell operators such as pipes and `&&` are not interpreted.
 
 Network is disabled by default. `--sandbox-network` explicitly retains host
 networking for commands that need it. Check output goes to stderr. Stdout contains
-one Markdown or JSON report, or the JSON payload for a dry run. No command means
+one Markdown or JSON report, or a JSON array of request payloads for a dry run. No command means
 `checks: not_run`, not passed.
 
 A failed, timed-out, or unstartable check exits `1` without calling Jev. If selected

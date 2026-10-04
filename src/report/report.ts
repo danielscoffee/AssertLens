@@ -12,6 +12,8 @@ export type Report = {
 	head?: string;
 	scope?: string[];
 	assertions?: Record<string, string>;
+	files?: Record<string, string[]>;
+	unchanged?: string[];
 	model?: string;
 	error?: string;
 };
@@ -55,15 +57,23 @@ export function renderReport(report: Report): string {
 		lines.push(
 			`- Scope: ${report.scope.length} selected files; others are not reviewed: ${report.scope.map(markdownText).join(", ")}`,
 		);
+	if (report.unchanged?.length)
+		lines.push(
+			`- Unchanged, not reviewed: ${report.unchanged.map(markdownText).join(", ")}`,
+		);
 	if (report.error) lines.push("", `**Error:** ${markdownText(report.error)}`);
+	const scopes = new Set(
+		Object.values(report.files ?? {}).map((paths) => paths.join("\0")),
+	);
 	for (const finding of findings) {
 		const { supported, contradicted, insufficient } = finding.probabilities;
 		const assertion = report.assertions?.[finding.id];
 		lines.push("", `### ${markdownText(finding.id)}: ${finding.verdict}`, "");
 		if (assertion) lines.push(`> ${markdownText(assertion)}`, "");
+		lines.push(explain(finding), "");
+		if (scopes.size > 1 && report.files?.[finding.id])
+			lines.push(`Files: ${report.files[finding.id].map(markdownText).join(", ")}`, "");
 		lines.push(
-			explain(finding),
-			"",
 			`Raw choice: ${finding.choice}, confidence ${finding.confidence.toFixed(3)}. ` +
 				`Probabilities: supported ${supported.toFixed(3)}, contradicted ${contradicted.toFixed(3)}, insufficient ${insufficient.toFixed(3)}.`,
 		);

@@ -43,7 +43,6 @@ export type GitPort = {
 		config: Config,
 		baseRef: string,
 		headRef?: string,
-		snapshot?: boolean,
 	): State;
 	createWorkspace(repo: string, headRef?: string): Workspace;
 };

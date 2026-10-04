@@ -19,6 +19,22 @@ The following example assumes those source and test files exist in your project:
 }
 ```
 
+An assertion can instead be an object with its own `files`. Assertions that
+share the same files are sent together; a trailing `/` selects a folder:
+
+```json
+{
+  "files": ["src/auth.ts"],
+  "assertions": {
+    "expiry": "Expired tokens are rejected before protected data is returned.",
+    "routes": {
+      "text": "Every route handler calls requireSession before reading user data.",
+      "files": ["src/routes/", "src/auth.ts"]
+    }
+  }
+}
+```
+
 These are semantic review claims, not executable tests. Keep actual assertions in
 your test suite. Prefer narrow, falsifiable claims over “this code is correct.”
 
@@ -27,8 +43,8 @@ your test suite. Prefer narrow, falsifiable claims over “this code is correct.
 | Field | Rules |
 | --- | --- |
 | `model` | Optional; defaults to `jev-1.13.0`. Must match `^jev-[a-z0-9.-]+$`. |
-| `files` | Required array of 1–20 unique, literal repository-relative paths. |
-| `assertions` | Required object containing 1–20 named claims. |
+| `files` | Array of 1–20 unique, literal repository-relative files or folders. Required unless every assertion sets its own `files`. |
+| `assertions` | Required object containing 1–20 named claims. Each is a string, or `{ "text", "files" }` with the same `files` rules. |
 
 Assertion identifiers must match `^[a-z][a-z0-9_]{0,63}$`: start with a lowercase
 letter, followed by lowercase letters, digits, or underscores, up to 64 characters
@@ -40,8 +56,16 @@ model information.
 
 ## Select enough context
 
-Only listed files are sent. Include relevant unchanged dependencies and tests
-explicitly; the CLI does not discover them or expand imports.
+Only listed files, and files inside listed folders, are sent. Include relevant
+unchanged dependencies and tests explicitly; the CLI does not discover them or
+expand imports. Each assertion sees only its own scope.
+
+A folder entry ends with `/` and expands recursively to Git-visible files. Local
+mode uses tracked files plus untracked files that are not ignored; `--head` uses the
+base and head trees. Files added or deleted under the folder are included. Every
+expanded file must pass the same checks as an explicit path, so a sensitive path,
+symlink, binary, or submodule inside a folder makes the review unavailable. An empty
+folder is invalid, and a scope may expand to at most 50 files.
 
 Paths cannot contain traversal, globs, backslashes, or absolute paths. Selected
 source must be regular UTF-8 text. Symlinks, binaries, and submodules are rejected.
@@ -54,17 +78,23 @@ look harmless.
 
 ## What Jev receives
 
-- Full before/after contents of every selected file, with missing revisions
+AssertLens sends one request per distinct scope. Each request contains:
+
+- Full before/after contents of every file in that scope, with missing revisions
   represented as `null`.
 - Resolved base commit and either the head commit or `working-tree` marker.
 - Executable check status, but not check logs.
-- Your assertion text as typed questions.
+- The text of that scope's assertions as typed questions.
+
+Without `--snapshot`, scopes whose files are all unchanged are skipped and listed as
+unchanged in the report.
 
 Each question asks Jev to evaluate the **after** version using the selected scope.
 Missing or ambiguous evidence should produce `insufficient`, not an assumption
 that omitted code is correct.
 
-Inspect the exact request without credentials or network access:
+Inspect the exact requests, printed as a JSON array, without credentials or
+network access:
 
 ```bash
 node src/assertlens.ts --snapshot --dry-run

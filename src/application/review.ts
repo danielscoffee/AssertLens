@@ -3,7 +3,7 @@ import type { CheckResult, CheckRunner } from "../check/check.ts";
 import { checkPassed } from "../check/check.ts";
 import { loadConfig } from "../config/config.ts";
 import type { GitPort } from "../git/git.ts";
-import type { ReviewClient, ReviewRequest } from "../jev/jev.ts";
+import type { Finding, ReviewClient, ReviewRequest } from "../jev/jev.ts";
 import { makeRequest } from "../jev/request.ts";
 import type { Report } from "../report/report.ts";
 
@@ -34,7 +34,7 @@ export type ReviewOptions = Omit<CheckOnlyOptions, "command"> & {
 };
 
 export type ReviewRun =
-	| { kind: "dry-run"; request: ReviewRequest; exitCode: 0 }
+	| { kind: "dry-run"; requests: ReviewRequest[]; exitCode: 0 }
 	| { kind: "report"; report: Report; exitCode: 0 | 1 | 2 };
 
 function emptyReport(): Report {
@@ -109,22 +109,43 @@ export async function runReview(
 		const repo = dependencies.git.repositoryRoot(options.repo);
 		const config = loadConfig(resolve(repo, options.config));
 		const collect = () =>
-			dependencies.git.collectState(
-				repo,
-				config,
-				options.base,
-				options.head,
-				options.snapshot,
+			config.scopes.map((scope) =>
+				dependencies.git.collectState(repo, scope, options.base, options.head),
 			);
-		const state = collect();
+		const states = collect();
+		// Without --snapshot, scopes whose files are all unchanged are skipped.
+		const reviewed = config.scopes
+			.map((scope, index) => ({ scope, state: states[index] }))
+			.filter(
+				({ state }) =>
+					options.snapshot ||
+					state.files.some((file) => file.before !== file.after),
+			);
+		if (!reviewed.length)
+			throw new Error(
+				"No changes in selected files; use --snapshot, choose --base, or update configuration.",
+			);
+		const ids = Object.keys(config.assertions);
+		const files: Record<string, string[]> = Object.fromEntries(
+			reviewed.flatMap(({ scope, state }) =>
+				Object.keys(scope.assertions).map((id) => [
+					id,
+					state.files.map((file) => file.path),
+				]),
+			),
+		);
 		Object.assign(report, {
-			base: state.base,
-			head: state.head,
-			scope: config.files,
+			base: states[0].base,
+			head: states[0].head,
+			scope: [...new Set(Object.values(files).flat())],
 			assertions: config.assertions,
+			files,
+			unchanged: ids.filter((id) => !files[id]),
 		});
+		const requests = () =>
+			reviewed.map(({ scope, state }) => makeRequest(scope, state));
 		if (options.dryRun)
-			return { kind: "dry-run", request: makeRequest(config, state), exitCode: 0 };
+			return { kind: "dry-run", requests: requests(), exitCode: 0 };
 
 		if (options.command) {
 			const check = executeCheck(dependencies, repo, {
@@ -136,20 +157,29 @@ export async function runReview(
 			report.error = checkError(check);
 			if (report.checks === "failed")
 				return { kind: "report", report, exitCode: 1 };
-			if (JSON.stringify(collect()) !== JSON.stringify(state))
+			if (JSON.stringify(collect()) !== JSON.stringify(states))
 				throw new Error(
 					"Selected files changed during checks; rerun against a stable snapshot.",
 				);
-			state.checks = "passed";
+			for (const { state } of reviewed) state.checks = "passed";
 		}
-		Object.assign(
-			report,
-			await dependencies.reviewClient.review(
-				makeRequest(config, state),
+		// Sequential: the first failure stops further quota use and makes the review unavailable.
+		const findings: Finding[] = [];
+		const models = new Set<string>();
+		for (const request of requests()) {
+			const result = await dependencies.reviewClient.review(
+				request,
 				dependencies.env.TYPESAFE_API_KEY ?? "",
-			),
-			{ review: "complete" },
-		);
+			);
+			models.add(result.model);
+			findings.push(...result.findings);
+		}
+		findings.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+		Object.assign(report, {
+			model: [...models].join(", "),
+			findings,
+			review: "complete",
+		});
 		return { kind: "report", report, exitCode: 0 };
 	} catch (error) {
 		return { kind: "report", report: unavailable(error, report), exitCode: 2 };

@@ -9,7 +9,8 @@ Live reviews send selected files' full before/after contents, commit identifiers
 check status, and assertion text to TypeSafe. Check logs and environment credentials
 are not included in that payload. The API key authenticates the HTTP request.
 
-Only select source you are permitted to share. Never select files containing
+Folder entries send every Git-visible file beneath them, including local untracked
+files that are not ignored. Only select source you are permitted to share. Never select files containing
 credentials or personal data. Sensitive-path rejection is an accident guard,
 **not a secret scanner**: a harmless filename can still contain secrets.
 
@@ -63,13 +64,14 @@ the committed tree, then executes it in Bubblewrap. The supplied
 
 | Resource | Limit |
 | --- | --- |
-| Selected files | 1–20 unique literal repository-relative paths |
+| Selected files | 1–20 unique literal repository-relative files or folders per list |
+| Files per scope | At most 50 after folder expansion |
 | Named assertions | 1–20 |
 | Assertion text | Nonblank, at most 1,000 characters |
 | Serialized review state and outbound request | 96,000 bytes each |
 | Configuration, response, and individual source reads | 64,000 bytes each |
 | Executable check | Two minutes |
-| Jev request | 30 seconds; no automatic retries |
+| Jev request | One per distinct scope, sent sequentially; 30 seconds each; no automatic retries |
 
 Regular UTF-8 source files only: no symlinks, binaries, traversal, globs, or
 submodules. Git path names used for sandbox staging must also be valid UTF-8;
@@ -87,8 +89,8 @@ Missing credentials, malformed or missing answers, invalid probabilities, networ
 failures, and a changed source snapshot during checks cannot produce a completed
 review. A selected file missing in both revisions also fails validation.
 
-With no command, checks are `not_run`, not passed. Without `--snapshot`, unchanged
-selected files make review unavailable. The CLI's [exit codes](cli-usage.md#reports-and-exit-codes)
+With no command, checks are `not_run`, not passed. Without `--snapshot`, scopes with
+only unchanged files are skipped; review is unavailable when every scope is unchanged. The CLI's [exit codes](cli-usage.md#reports-and-exit-codes)
 distinguish unavailable review from failed executable checks.
 
 Source recollection is not a filesystem lock. Sandboxed command mutations are

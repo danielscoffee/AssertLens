@@ -1,29 +1,25 @@
 {
   "model": "jev-1.13.0",
-  "files": [
-    "src/application/review.ts",
-    "src/assertlens.ts",
-    "src/check/check.ts",
-    "src/check/direct.ts",
-    "src/config/config.ts",
-    "src/git/cli.ts",
-    "src/git/git.ts",
-    "src/git/state.ts",
-    "src/git/workspace.ts",
-    "src/jev/http.ts",
-    "src/jev/jev.ts",
-    "src/jev/request.ts",
-    "src/jev/response.ts",
-    "src/report/report.ts",
-    "src/sandbox/bubblewrap.ts",
-    "src/sandbox/policy.ts",
-    "src/shared/executable.ts",
-    "src/shared/process.ts",
-    "src/shared/validation.ts"
-  ],
   "assertions": {
-    "check_failure": "In runReview, a check that runs and fails returns exitCode 1 before reviewClient.review is called; main returns that exit code.",
-    "invalid_evidence": "If reviewClient.review throws, including parseResponse rejecting a missing, unexpected, or malformed answer, runReview returns review unavailable, exitCode 2, and no findings.",
-    "advisory_only": "A completed runReview always returns exitCode 0; finding verdicts never change the checks status or the exit code."
+    "check_failure": {
+      "text": "In runReview, a check that runs and fails returns exitCode 1 before reviewClient.review is called; main returns that exit code.",
+      "files": ["src/application/", "src/assertlens.ts", "src/check/", "src/report/"]
+    },
+    "invalid_evidence": {
+      "text": "If reviewClient.review throws, including parseResponse rejecting a missing, unexpected, or malformed answer, runReview returns review unavailable, exitCode 2, and no findings.",
+      "files": ["src/application/", "src/jev/"]
+    },
+    "advisory_only": {
+      "text": "A completed runReview always returns exitCode 0; finding verdicts never change the checks status or the exit code.",
+      "files": ["src/application/", "src/assertlens.ts", "src/check/", "src/report/"]
+    },
+    "sandbox_isolation": {
+      "text": "buildBubblewrapArgs always passes --clearenv, adds --unshare-net unless request.network is true, and emits exactly one writable --bind: request.cwd at /workspace.",
+      "files": ["src/sandbox/", "src/check/check.ts", "src/shared/"]
+    },
+    "selected_paths": {
+      "text": "loadConfig rejects absolute, traversal, glob, and sensitive paths, and collectState applies the same reviewablePath check to every file expanded from a selected folder.",
+      "files": ["src/config/", "src/git/", "src/shared/validation.ts"]
+    }
   }
 }
