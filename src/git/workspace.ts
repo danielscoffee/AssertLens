@@ -19,10 +19,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { object } from "../shared/validation.ts";
-import type {
-	GitBlobWriter,
-	GitCommand,
-	Workspace,
+import {
+	resolveCommit,
+	type GitBlobWriter,
+	type GitCommand,
+	type Workspace,
 } from "./git.ts";
 
 const WORKSPACE_LIST_BYTES = 64_000_000;
@@ -143,14 +144,7 @@ function committedWorkspace(
 	ref: string,
 	root: string,
 ): void {
-	const commit = git(repo, [
-		"rev-parse",
-		"--verify",
-		"--end-of-options",
-		`${ref}^{commit}`,
-	])
-		.toString("utf8")
-		.trim();
+	const commit = resolveCommit(git, repo, ref);
 	const entries = text(
 		git(repo, ["ls-tree", "-rz", "--full-tree", commit], WORKSPACE_LIST_BYTES),
 		"Git tree",

@@ -5,9 +5,10 @@ import type * as Preset from "@docusaurus/preset-classic";
 const config: Config = {
 	title: "AssertLens",
 	tagline: "Local correctness checks and advisory Jev review",
-	// Local preview only. Set url and baseUrl before publishing.
-	url: "http://localhost:3000",
-	baseUrl: "/",
+	// GitHub Pages project site; see .github/workflows/docs.yml.
+	url: "https://danielscoffee.github.io",
+	baseUrl: "/AssertLens/",
+	trailingSlash: false,
 	onBrokenLinks: "throw",
 	onBrokenAnchors: "throw",
 	markdown: {

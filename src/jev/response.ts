@@ -7,7 +7,7 @@ import {
 	type ReviewResult,
 } from "./jev.ts";
 
-const REVIEW_CONFIDENCE = 0.8; // Advisory starting point, not a calibrated correctness threshold.
+export const REVIEW_CONFIDENCE = 0.8; // Advisory starting point, not a calibrated correctness threshold.
 
 export function parseResponse(
 	raw: unknown,

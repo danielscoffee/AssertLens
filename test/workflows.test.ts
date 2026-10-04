@@ -10,6 +10,10 @@ const review = readFileSync(
 	new URL("../.github/workflows/jev-review.yml", import.meta.url),
 	"utf8",
 );
+const docs = readFileSync(
+	new URL("../.github/workflows/docs.yml", import.meta.url),
+	"utf8",
+);
 
 const immutableFetch =
 	/git fetch --no-tags origin "refs\/pull\/\$PR_NUMBER\/head"[\s\S]*"\$\(git rev-parse FETCH_HEAD\)" != "\$PR_HEAD_SHA"/;
@@ -105,4 +109,23 @@ test("workflows use read-only tokens, bounded jobs, and pinned official actions"
 			assert.match(action, /^actions\/(checkout|setup-node)@[a-f0-9]{40}$/);
 		}
 	}
+});
+
+test("docs deploy to Pages only from main with job-scoped write access", () => {
+	const [build, deploy] = docs.split("\n  deploy:\n");
+	assert.match(build, /permissions:\n {2}contents: read/);
+	assert.doesNotMatch(build, /: write|secrets\./);
+	assert.match(build, /persist-credentials: false/);
+	assert.match(build, /npm ci --prefix website --ignore-scripts/);
+	assert.match(
+		deploy,
+		/if: \$\{\{ github\.event_name != 'pull_request' && github\.ref == 'refs\/heads\/main' \}\}/,
+	);
+	assert.match(deploy, /permissions:\n {6}pages: write\n {6}id-token: write/);
+	assert.doesNotMatch(docs, /pull_request_target|workflow_run|secrets\./);
+	for (const [, action] of docs.matchAll(/uses: (\S+)/g))
+		assert.match(
+			action,
+			/^actions\/(checkout|setup-node|upload-pages-artifact|deploy-pages)@[a-f0-9]{40}$/,
+		);
 });
