@@ -1,7 +1,8 @@
 # AssertLens
 
 Run local correctness checks and advisory GitHub pull-request reviews with AssertLens.
-Node 24.12+ runs the TypeScript source directly. No runtime dependencies, server, or build step.
+Node 24.12+ runs the TypeScript source directly; the npm package ships compiled JavaScript.
+No runtime dependencies or server.
 
 **Executable checks test behavior. Jev judges explicit assertions against selected
 source. Neither passing tests nor model confidence proves general correctness.**
@@ -19,6 +20,17 @@ npm run --prefix website start
 
 See [`website/README.md`](website/README.md) for build and preview commands.
 The CLI does not depend on the documentation site's packages.
+
+## Install
+
+```bash
+npm install --global assertlens
+assertlens --help
+```
+
+The package contains compiled JavaScript because Node does not strip TypeScript types
+inside `node_modules`. The examples below run the source checkout with
+`node src/assertlens.ts`; an installed `assertlens` accepts the same options.
 
 ## Local usage
 
@@ -195,6 +207,77 @@ To adopt this in another TypeScript repository, copy the trusted CLI modules, re
 workflow, and your own `.assertlens.json`; adjust the workflow's entry path if needed.
 Keep that repository's normal CI. The CLI has no runtime npm dependencies, but
 sandboxed commands require Linux and Bubblewrap.
+
+Or use the reusable composite action, which runs the CLI from the action's own pinned
+checkout. Pin it to a full commit SHA. Its command is a JSON array run without a shell
+in Bubblewrap, and the report is also appended to the job summary:
+
+```yaml
+- uses: danielscoffee/AssertLens@<commit-sha>
+  with:
+    base: ${{ github.event.pull_request.base.sha }}
+    head: ${{ github.event.pull_request.head.sha }}
+    command: '["npm", "test"]'
+  env:
+    TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+```
+
+Inputs: `repo`, `config`, `base`, `head`, `command`, `snapshot`, `check-only`, and
+`sandbox-network`. The action sets up Node 24 and, when a command is given, installs
+Bubblewrap on the Linux runner. It exits with the CLI's exit code. The action runs
+wherever your workflow checked out code, so keep the trusted-base checkout pattern
+from the supplied workflows.
+
+### Container image
+
+The `Image` workflow publishes `ghcr.io/danielscoffee/assertlens` from `main`
+(`main`, `sha-<commit>`); releases add semver tags. Pin by digest.
+The image contains the CLI, Git, and Bubblewrap, and runs as a non-root user.
+Sandboxed checks inside the container need relaxed container confinement so
+Bubblewrap can create its own namespaces:
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" -e TYPESAFE_API_KEY \
+  --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+  --security-opt systempaths=unconfined \
+  ghcr.io/danielscoffee/assertlens@sha256:<digest> --snapshot -- npm test
+```
+
+Without those options the sandbox cannot start and checks fail closed. `--user` must
+own the mounted repository or Git rejects it; with rootless Docker, use `--user 0:0`,
+which maps to your unprivileged host user. Review-only and `--dry-run` runs need no
+extra options.
+
+## Releases
+
+Releases are driven by semver tags. Bump `version` in `package.json` on `main`, then
+push a matching tag:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The `Release` workflow checks that the tag is `vMAJOR.MINOR.PATCH[-PRERELEASE]`,
+matches `package.json`, and points to a commit on `main`. It then typechecks, tests,
+and builds before deploying:
+
+| Channel | Stable `v1.2.3` | Prerelease `v1.3.0-rc.1` |
+| --- | --- | --- |
+| npm `assertlens` | dist-tag `latest` | dist-tag `next` |
+| GHCR image | `1.2.3`, `1.2`, `1`, `latest` | `1.3.0-rc.1` |
+| GitHub release | Release with generated notes | Prerelease |
+
+npm and GHCR deploy through the `npm` and `ghcr` GitHub environments, so each deploy
+appears under the repository's deployments. npm uses trusted publishing (OIDC) with
+provenance; no npm token is stored. Floating image tags assume versions are released
+in increasing order.
+
+One-time setup: publish the first version manually with `npm publish --access public`
+from a clean checkout of `main`. Then add a trusted publisher on npmjs.com with user
+`danielscoffee`, repository `AssertLens`, workflow `release.yml`, and environment
+`npm`. Automated releases start from the next version. Consider a tag ruleset limiting
+who can push `v*` tags, and required reviewers on both environments.
 
 ## Modules
 

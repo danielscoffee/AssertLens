@@ -1,0 +1,65 @@
+name: Image
+
+on:
+  pull_request:
+    paths: [Dockerfile, .dockerignore, action.yml, package.json, src/**, .github/scripts/publish-image.sh, .github/workflows/image.yml]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Allow unprivileged user namespaces
+        run: |
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Build image
+        run: docker build --pull --tag assertlens:test .
+      - name: Smoke test image sandbox
+        run: |
+          docker run --rm assertlens:test --help | grep -q '^AssertLens'
+          run=(docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro"
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined
+            --security-opt systempaths=unconfined assertlens:test --head HEAD --check-only --)
+          "${run[@]}" node -e 'process.exit(0)'
+          if "${run[@]}" node -e 'process.exit(3)'; then
+            echo 'A failing sandboxed check passed.'
+            exit 1
+          fi
+      - name: Smoke test composite action
+        uses: ./
+        with:
+          head: HEAD
+          check-only: "true"
+          command: '["node", "-e", "process.exit(0)"]'
+
+  publish:
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build, verify, and push image
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: .github/scripts/publish-image.sh main "sha-${GITHUB_SHA::12}"

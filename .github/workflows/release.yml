@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+      prerelease: ${{ steps.semver.outputs.prerelease }}
+      npm-tag: ${{ steps.semver.outputs.npm-tag }}
+      image-tags: ${{ steps.semver.outputs.image-tags }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Derive release channels from the semver tag
+        id: semver
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if ! [[ "$version" =~ $semver ]]; then
+            echo "::error::$GITHUB_REF_NAME is not a vMAJOR.MINOR.PATCH[-PRERELEASE] tag."
+            exit 1
+          fi
+          major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}" prerelease="${BASH_REMATCH[4]}"
+          package="$(node -p 'require("./package.json").version')"
+          if [ "$version" != "$package" ]; then
+            echo "::error::Tag $version does not match package.json version $package."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must point to a commit on main."
+            exit 1
+          fi
+          if [ -n "$prerelease" ]; then
+            channels=(true next "$version")
+          else
+            channels=(false latest "$version $major.$minor $major latest")
+          fi
+          {
+            echo "version=$version"
+            echo "prerelease=${channels[0]}"
+            echo "npm-tag=${channels[1]}"
+            echo "image-tags=${channels[2]}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Install and preflight Bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --unshare-user --unshare-pid --disable-userns -- /bin/true
+      - name: Typecheck, test, and build
+        run: |
+          npm ci --ignore-scripts
+          npm run typecheck
+          npm test
+          npm run build
+
+  npm:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/assertlens/v/${{ needs.verify.outputs.version }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Publish with trusted publishing and provenance
+        env:
+          NPM_TAG: ${{ needs.verify.outputs.npm-tag }}
+        run: |
+          npm ci --ignore-scripts
+          npm publish --access public --tag "$NPM_TAG"
+
+  image:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: ghcr
+      url: https://github.com/${{ github.repository }}/pkgs/container/assertlens
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build, verify, and push semver tags
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          IMAGE_TAGS: ${{ needs.verify.outputs.image-tags }}
+        run: |
+          read -ra tags <<< "$IMAGE_TAGS"
+          .github/scripts/publish-image.sh "${tags[@]}"
+
+  github-release:
+    needs: [verify, npm, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          flags=(--repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$GITHUB_REF_NAME")
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}"

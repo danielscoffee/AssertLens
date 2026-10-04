@@ -1,0 +1,83 @@
+name: AssertLens
+description: Sandboxed checks and advisory Jev review of explicitly selected source.
+author: danielscoffee
+branding:
+  icon: check-circle
+  color: blue
+
+inputs:
+  repo:
+    description: Repository to review.
+    default: "."
+  config:
+    description: Configuration path relative to the repository root.
+    default: .assertlens.json
+  base:
+    description: Commit to compare against.
+    default: HEAD
+  head:
+    description: Review this committed ref instead of the working tree; commands run in its sandboxed tree.
+    default: ""
+  command:
+    description: Check command as a JSON array of strings, run without a shell in Bubblewrap, for example ["npm", "test"].
+    default: ""
+  snapshot:
+    description: Review selected files even when they match the base.
+    default: "false"
+  check-only:
+    description: Run the command without configuration or Jev review.
+    default: "false"
+  sandbox-network:
+    description: Allow network access inside the command sandbox.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      with:
+        node-version: "24"
+        package-manager-cache: false
+    - name: Install and preflight Bubblewrap
+      if: ${{ inputs.command != '' }}
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes bubblewrap
+        if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
+        bwrap --ro-bind / / --unshare-user --unshare-pid --disable-userns -- /bin/true
+    - name: Run AssertLens
+      shell: bash
+      env:
+        INPUT_REPO: ${{ inputs.repo }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_HEAD: ${{ inputs.head }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_SNAPSHOT: ${{ inputs.snapshot }}
+        INPUT_CHECK_ONLY: ${{ inputs.check-only }}
+        INPUT_SANDBOX_NETWORK: ${{ inputs.sandbox-network }}
+      run: |
+        args=(--repo "$INPUT_REPO")
+        if [ "$INPUT_CHECK_ONLY" = true ]; then
+          args+=(--check-only)
+        else
+          args+=(--config "$INPUT_CONFIG" --base "$INPUT_BASE")
+        fi
+        if [ -n "$INPUT_HEAD" ]; then args+=(--head "$INPUT_HEAD"); fi
+        if [ "$INPUT_SNAPSHOT" = true ]; then args+=(--snapshot); fi
+        if [ "$INPUT_SANDBOX_NETWORK" = true ]; then args+=(--sandbox-network); fi
+        if [ -n "$INPUT_COMMAND" ]; then
+          command_file="$RUNNER_TEMP/assertlens-command"
+          node -e '
+            const args = JSON.parse(process.env.INPUT_COMMAND);
+            if (!Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string" || arg.includes("\0")))
+              throw new Error("command must be a non-empty JSON array of strings");
+            process.stdout.write(args.map((arg) => `${arg}\0`).join(""));
+          ' > "$command_file"
+          mapfile -d '' -t command < "$command_file"
+          args+=(-- "${command[@]}")
+        fi
+        node "$GITHUB_ACTION_PATH/src/assertlens.ts" "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

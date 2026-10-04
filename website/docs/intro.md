@@ -9,7 +9,8 @@ against selected source files. It also provides an advisory GitHub pull-request
 review workflow.
 
 The CLI is written in TypeScript. Node 24.12+ runs its source directly, with no
-runtime dependencies, server, or build step. This documentation site is a separate
+runtime dependencies or server; the npm package ships compiled JavaScript. This
+documentation site is a separate
 Docusaurus package; the CLI does not depend on it.
 
 :::warning Advisory only

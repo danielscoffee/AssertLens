@@ -1021,12 +1021,15 @@ test("self-review scopes cover every runtime module within the token budget", (t
 	assert.deepEqual([...reviewed].sort(), modules.sort());
 });
 
-test("AssertLens package uses TypeScript directly", () => {
+test("npm package ships compiled JavaScript with no runtime dependencies", () => {
 	const manifest = JSON.parse(
 		readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 	);
 	assert.equal(manifest.name, "assertlens");
-	assert.deepEqual(manifest.bin, { assertlens: "./src/assertlens.ts" });
+	assert.equal(manifest.private, undefined);
+	assert.deepEqual(manifest.bin, { assertlens: "./dist/assertlens.js" });
+	assert.deepEqual(manifest.files, ["dist"]);
+	assert.equal(manifest.scripts.prepack, "npm run build");
 	assert.equal(manifest.scripts.typecheck, "tsc --noEmit");
 	assert.equal(manifest.scripts.review, "node src/assertlens.ts");
 	assert.equal(manifest.dependencies, undefined);
