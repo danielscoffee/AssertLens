@@ -201,6 +201,9 @@ test("semver tags gate releases and scope each deploy's write access", () => {
 	assert.match(jobs.npm, /npm publish --access public --tag "\$NPM_TAG"/);
 	assert.match(jobs.image, /environment:\n {6}name: ghcr/);
 	assert.match(jobs.image, /permissions:\n {6}contents: read\n {6}packages: write\n/);
+	assert.match(jobs.npm, /npm view "assertlens@\$VERSION" version[\s\S]*exit 0[\s\S]*npm publish/);
 	assert.match(jobs["github-release"], /needs: \[verify, npm, image\]/);
+	assert.match(jobs["github-release"], /gh release view "\$GITHUB_REF_NAME"[\s\S]*exit 0/);
+	assert.match(jobs["github-release"], /--verify-tag --generate-notes --title "\$GITHUB_REF_NAME" --draft\)/);
 	assert.match(jobs["github-release"], /permissions:\n {6}contents: write\n/);
 });
