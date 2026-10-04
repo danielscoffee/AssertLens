@@ -773,12 +773,12 @@ test("malformed, oversized, and disconnected HTTP responses fail closed", async 
 
 test("modules compose a local review request without the CLI", async (t) => {
 	const { loadConfig } = await import("../src/config/config.ts");
-	const { repositoryRoot, collectState } = await import("../src/git/cli.ts");
+	const { cliGit } = await import("../src/git/cli.ts");
 	const { makeRequest } = await import("../src/jev/request.ts");
 	const { repo } = fixture(t);
-	const root = repositoryRoot(repo);
+	const root = cliGit.repositoryRoot(repo);
 	const settings = loadConfig(join(root, ".assertlens.json"));
-	const state = collectState(root, settings, "HEAD");
+	const state = cliGit.collectState(root, settings, "HEAD");
 	const request = makeRequest(settings, state);
 	assert.equal(root, repo);
 	assert.equal(request.model, config.model);

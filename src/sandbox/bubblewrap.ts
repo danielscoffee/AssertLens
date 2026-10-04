@@ -1,8 +1,7 @@
-import { dirname } from "node:path";
 import type { CheckResult, CheckRunner } from "../check/check.ts";
 import {
+	executablePath,
 	resolveTrustedExecutable,
-	trustedExecutablePath,
 } from "../shared/executable.ts";
 import type { ProcessPort } from "../shared/process.ts";
 import {
@@ -47,12 +46,7 @@ export function createBubblewrapRunner(
 				args: buildBubblewrapArgs(request, policy(request.env)),
 				cwd: request.cwd,
 				env: {
-					PATH: [
-						dirname(executable),
-						trustedExecutablePath(request.env.PATH),
-					]
-						.filter(Boolean)
-						.join(":"),
+					PATH: executablePath(executable, request.env.PATH),
 					LANG: "C.UTF-8",
 				},
 				killSignal: "SIGKILL",

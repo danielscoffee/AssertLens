@@ -7,23 +7,14 @@ import type { ReviewClient, ReviewRequest } from "../jev/jev.ts";
 import { makeRequest } from "../jev/request.ts";
 import type { Report } from "../report/report.ts";
 
-export type ReviewDependencies = {
+type CheckDependencies = {
 	git: GitPort;
 	checkRunner: CheckRunner;
-	reviewClient: ReviewClient;
 	env: NodeJS.ProcessEnv;
 };
 
-export type ReviewOptions = {
-	repo: string;
-	config: string;
-	base: string;
-	head?: string;
-	snapshot: boolean;
-	dryRun: boolean;
-	sandboxed: boolean;
-	network: boolean;
-	command?: [string, ...string[]];
+export type ReviewDependencies = CheckDependencies & {
+	reviewClient: ReviewClient;
 };
 
 export type CheckOnlyOptions = {
@@ -32,6 +23,14 @@ export type CheckOnlyOptions = {
 	sandboxed: boolean;
 	network: boolean;
 	command: [string, ...string[]];
+};
+
+export type ReviewOptions = Omit<CheckOnlyOptions, "command"> & {
+	config: string;
+	base: string;
+	snapshot: boolean;
+	dryRun: boolean;
+	command?: CheckOnlyOptions["command"];
 };
 
 export type ReviewRun =
@@ -51,13 +50,14 @@ function message(error: unknown): string {
 	return error instanceof Error ? error.message : "Unexpected review failure.";
 }
 
+export function unavailable(error: unknown, report = emptyReport()): Report {
+	return { ...report, review: "unavailable", error: message(error) };
+}
+
 function executeCheck(
-	dependencies: Pick<ReviewDependencies, "git" | "checkRunner" | "env">,
+	dependencies: CheckDependencies,
 	repo: string,
-	options: Pick<
-		CheckOnlyOptions,
-		"head" | "sandboxed" | "network" | "command"
-	>,
+	options: CheckOnlyOptions,
 ): CheckResult {
 	const workspace = options.sandboxed
 		? dependencies.git.createWorkspace(repo, options.head)
@@ -86,7 +86,7 @@ function checkError(check: CheckResult): string | undefined {
 }
 
 export function runCheckOnly(
-	dependencies: Pick<ReviewDependencies, "git" | "checkRunner" | "env">,
+	dependencies: CheckDependencies,
 	options: CheckOnlyOptions,
 ): { exitCode: 0 | 1 | 2; error?: string } {
 	try {
@@ -108,13 +108,15 @@ export async function runReview(
 	try {
 		const repo = dependencies.git.repositoryRoot(options.repo);
 		const config = loadConfig(resolve(repo, options.config));
-		const state = dependencies.git.collectState(
-			repo,
-			config,
-			options.base,
-			options.head,
-			options.snapshot,
-		);
+		const collect = () =>
+			dependencies.git.collectState(
+				repo,
+				config,
+				options.base,
+				options.head,
+				options.snapshot,
+			);
+		const state = collect();
 		Object.assign(report, {
 			base: state.base,
 			head: state.head,
@@ -126,31 +128,18 @@ export async function runReview(
 
 		if (options.command) {
 			const check = executeCheck(dependencies, repo, {
+				...options,
 				command: options.command,
-				head: options.head,
-				sandboxed: options.sandboxed,
-				network: options.network,
 			});
 			report.checkExitCode = check.status;
 			report.checks = checkPassed(check) ? "passed" : "failed";
 			report.error = checkError(check);
 			if (report.checks === "failed")
 				return { kind: "report", report, exitCode: 1 };
-			if (
-				JSON.stringify(
-					dependencies.git.collectState(
-						repo,
-						config,
-						options.base,
-						options.head,
-						options.snapshot,
-					),
-				) !== JSON.stringify(state)
-			) {
+			if (JSON.stringify(collect()) !== JSON.stringify(state))
 				throw new Error(
 					"Selected files changed during checks; rerun against a stable snapshot.",
 				);
-			}
 			state.checks = "passed";
 		}
 		Object.assign(
@@ -163,8 +152,6 @@ export async function runReview(
 		);
 		return { kind: "report", report, exitCode: 0 };
 	} catch (error) {
-		report.review = "unavailable";
-		report.error = message(error);
-		return { kind: "report", report, exitCode: 2 };
+		return { kind: "report", report: unavailable(error, report), exitCode: 2 };
 	}
 }

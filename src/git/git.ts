@@ -20,6 +20,16 @@ export type GitCommand = (
 	maxBuffer?: number,
 ) => Buffer;
 
+export function resolveCommit(
+	git: GitCommand,
+	repo: string,
+	ref: string,
+): string {
+	return git(repo, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`])
+		.toString("utf8")
+		.trim();
+}
+
 export type GitBlobWriter = (
 	repo: string,
 	objectId: string,

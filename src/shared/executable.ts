@@ -4,7 +4,7 @@ import {
 	realpathSync,
 	statSync,
 } from "node:fs";
-import { delimiter, isAbsolute, join, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 
 const TRUSTED_ROOTS = [
 	"/usr",
@@ -42,6 +42,13 @@ export function trustedExecutablePath(path = process.env.PATH ?? ""): string {
 		const real = canonical(directory);
 		return real !== undefined && trusted(real) ? [real] : [];
 	}))].join(delimiter);
+}
+
+// PATH for a resolved executable's child process: its own directory, then trusted ones.
+export function executablePath(executable: string, path?: string): string {
+	return [dirname(executable), trustedExecutablePath(path)]
+		.filter(Boolean)
+		.join(delimiter);
 }
 
 export function resolveTrustedExecutable(

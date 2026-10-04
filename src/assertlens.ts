@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { runCheckOnly, runReview } from "./application/review.ts";
+import { runCheckOnly, runReview, unavailable } from "./application/review.ts";
 import { createDirectRunner } from "./check/direct.ts";
 import { cliGit } from "./git/cli.ts";
 import { httpJev } from "./jev/http.ts";
@@ -29,16 +29,6 @@ Commands use Bubblewrap by default. Only Git-visible files enter the writable sa
 Only explicitly selected files are sent to TypeSafe. Inspect --dry-run first.
 Exit 0: completed advisory review/help/dry-run; 1: failed check; 2: unavailable review.
 `;
-
-function unavailable(error: unknown): Report {
-	return {
-		mode: "advisory",
-		checks: "not_run",
-		review: "unavailable",
-		findings: [],
-		error: error instanceof Error ? error.message : "Unexpected review failure.",
-	};
-}
 
 function output(report: Report, json: boolean): void {
 	process.stdout.write(

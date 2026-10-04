@@ -2,7 +2,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Config } from "../config/config.ts";
 import { bounded, MAX_BYTES, object } from "../shared/validation.ts";
-import type { GitCommand, State } from "./git.ts";
+import { resolveCommit, type GitCommand, type State } from "./git.ts";
 
 function source(bytes: Buffer): string {
 	if (bytes.includes(0)) throw new Error("Binary source is not supported.");
@@ -56,24 +56,8 @@ export function collectState(
 	headRef?: string,
 	snapshot = false,
 ): State {
-	let base = git(repo, [
-		"rev-parse",
-		"--verify",
-		"--end-of-options",
-		`${baseRef}^{commit}`,
-	])
-		.toString("utf8")
-		.trim();
-	const head = headRef
-		? git(repo, [
-				"rev-parse",
-				"--verify",
-				"--end-of-options",
-				`${headRef}^{commit}`,
-			])
-				.toString("utf8")
-				.trim()
-		: "working-tree";
+	let base = resolveCommit(git, repo, baseRef);
+	const head = headRef ? resolveCommit(git, repo, headRef) : "working-tree";
 	if (headRef)
 		base = git(repo, ["merge-base", base, head]).toString("utf8").trim();
 	// ponytail: explicit files only; add dependency discovery when missed-context cases justify it.
