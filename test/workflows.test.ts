@@ -100,6 +100,10 @@ test("trusted Jev review sandboxes PR tests and scopes its secret to final step"
 		review,
 		/git (checkout|switch)|npm (ci|install)|download-artifact|actions\/cache/,
 	);
+	assert.match(
+		review,
+		/\|\| status=\$\?\n\s+if \[ "\$status" -eq 3 \]; then\n\s+echo '::notice::[^']+'\n\s+exit 0\n\s+fi\n\s+exit "\$status"/,
+	);
 	assert.equal(
 		(
 			review.match(
@@ -174,6 +178,7 @@ test("composite action passes inputs through the environment, not script text", 
 	for (const script of scripts) assert.doesNotMatch(script, /\$\{\{/);
 	assert.match(action, /node "\$GITHUB_ACTION_PATH\/src\/assertlens\.ts" "\$\{args\[@\]\}"/);
 	assert.doesNotMatch(action, /eval |bash -c|sh -c|--no-sandbox/);
+	assert.match(action, /\|\| status=\$\?\n\s+if \[ "\$status" -eq 3 \]; then/);
 });
 
 test("semver tags gate releases and scope each deploy's write access", () => {

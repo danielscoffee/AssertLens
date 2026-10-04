@@ -43,7 +43,7 @@ npm test
 ```
 
 Review requires an existing Git commit. By default, at least one selected file must
-differ from the base. Use `--snapshot` to review selected source even with a clean
+differ from the base; otherwise review is `not_run` and the CLI exits `3`. Use `--snapshot` to review selected source even with a clean
 working tree; it still includes full before/after contents against the chosen base.
 
 Inspect the exact outbound payload without credentials or network access:
@@ -166,7 +166,8 @@ Requests have a 30-second timeout and are not automatically retried.
 | --- | --- |
 | `0` | Advisory review completed, or help/dry-run completed. **Not approval.** |
 | `1` | Executable check failed, timed out, or could not start. Jev was not called. |
-| `2` | Invalid input or unavailable/incomplete review, including unchanged scope without `--snapshot`. |
+| `2` | Invalid input or unavailable/incomplete review. |
+| `3` | No selected file changed, so review is `not_run`. Any command still ran and passed. **Not approval.** |
 
 ## GitHub pull requests
 
@@ -198,8 +199,8 @@ Use **`CI / check`** for required branch protection, not the advisory job. The r
 job records its own sandboxed `npm test` result; separate CI results are not imported
 or trusted as model evidence. Missing key/service failure makes the advisory job fail
 visibly; a completed review with contradictions remains advisory. Draft PRs are skipped.
-Changes only outside configured files produce an unavailable review, not a claim
-that the whole PR was checked. The supplied workflow reads policy/tooling from the
+Changes only outside configured files make review `not_run` (exit `3`), which the
+workflow reports as a notice, not a claim that the whole PR was checked. The supplied workflow reads policy/tooling from the
 base branch. Workflow definitions themselves can be edited in same-repository PRs;
 restrict contributor access and review `.github/workflows/` changes carefully.
 

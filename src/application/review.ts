@@ -35,7 +35,7 @@ export type ReviewOptions = Omit<CheckOnlyOptions, "command"> & {
 
 export type ReviewRun =
 	| { kind: "dry-run"; requests: ReviewRequest[]; exitCode: 0 }
-	| { kind: "report"; report: Report; exitCode: 0 | 1 | 2 };
+	| { kind: "report"; report: Report; exitCode: 0 | 1 | 2 | 3 };
 
 function emptyReport(): Report {
 	return {
@@ -52,6 +52,20 @@ function message(error: unknown): string {
 
 export function unavailable(error: unknown, report = emptyReport()): Report {
 	return { ...report, review: "unavailable", error: message(error) };
+}
+
+// Exit 3: no selected file changed, so there is nothing to review. Not an approval.
+function nothingToReview(report: Report): ReviewRun {
+	return {
+		kind: "report",
+		report: {
+			...report,
+			review: "not_run",
+			error:
+				"No changes in selected files; nothing to review. Use --snapshot, choose --base, or update configuration.",
+		},
+		exitCode: 3,
+	};
 }
 
 function executeCheck(
@@ -121,10 +135,6 @@ export async function runReview(
 					options.snapshot ||
 					state.files.some((file) => file.before !== file.after),
 			);
-		if (!reviewed.length)
-			throw new Error(
-				"No changes in selected files; use --snapshot, choose --base, or update configuration.",
-			);
 		const ids = Object.keys(config.assertions);
 		const files: Record<string, string[]> = Object.fromEntries(
 			reviewed.flatMap(({ scope, state }) =>
@@ -145,7 +155,9 @@ export async function runReview(
 		const requests = () =>
 			reviewed.map(({ scope, state }) => makeRequest(scope, state));
 		if (options.dryRun)
-			return { kind: "dry-run", requests: requests(), exitCode: 0 };
+			return reviewed.length
+				? { kind: "dry-run", requests: requests(), exitCode: 0 }
+				: nothingToReview(report);
 
 		if (options.command) {
 			const check = executeCheck(dependencies, repo, {
@@ -163,6 +175,7 @@ export async function runReview(
 				);
 			for (const { state } of reviewed) state.checks = "passed";
 		}
+		if (!reviewed.length) return nothingToReview(report);
 		// Sequential: the first failure stops further quota use and makes the review unavailable.
 		const findings: Finding[] = [];
 		const models = new Set<string>();

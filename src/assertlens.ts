@@ -27,7 +27,8 @@ Usage: node src/assertlens.ts [options] [-- command args...]\n
   --help              Show this help\n
 Commands use Bubblewrap by default. Only Git-visible files enter the writable sandbox.
 Only explicitly selected files are sent to TypeSafe. Inspect --dry-run first.
-Exit 0: completed advisory review/help/dry-run; 1: failed check; 2: unavailable review.
+Exit 0: completed advisory review/help/dry-run; 1: failed check; 2: unavailable review;
+3: no selected file changed, so nothing was reviewed.
 `;
 
 function output(report: Report, json: boolean): void {

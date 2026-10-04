@@ -90,5 +90,5 @@ node src/assertlens.ts --repo /path/to/project --base origin/main --dry-run
 ```
 
 Configuration defaults to `.assertlens.json` in the target repository's root. Its base
-reference must already exist locally, and at least one selected file must differ
-unless `--snapshot` is supplied. The CLI does not fetch remote references for you.
+reference must already exist locally. Without `--snapshot`, at least one selected file
+must differ; otherwise review is `not_run` and the CLI exits `3`. The CLI does not fetch remote references for you.

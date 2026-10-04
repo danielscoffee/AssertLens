@@ -87,8 +87,9 @@ test("snapshot dry-run reviews unchanged files without relaxing the default", (t
 	const { run, write } = fixture(t);
 	write("sample.ts", original);
 	const normal = run("--json", "--dry-run");
-	assert.equal(normal.status, 2);
-	assert.match(JSON.parse(normal.stdout).error, /--snapshot/);
+	assert.equal(normal.status, 3);
+	assert.equal(JSON.parse(normal.stdout).review, "not_run");
+	assert.match(JSON.parse(normal.stdout).error, /nothing to review.*--snapshot/);
 	const snapshot = run("--snapshot", "--dry-run");
 	assert.equal(snapshot.status, 0, snapshot.stderr);
 	const [request] = JSON.parse(snapshot.stdout);
@@ -476,10 +477,10 @@ test("invalid configuration, sensitive paths, symlinks, and oversized source fai
 
 test("binary content, missing paths, and unchanged scope are not successful reviews", (t) => {
 	const { run, write } = fixture(t);
-	for (const source of ["\0binary", original]) {
-		write("sample.ts", source);
-		assert.equal(run("--dry-run").status, 2);
-	}
+	write("sample.ts", "\0binary");
+	assert.equal(run("--dry-run").status, 2);
+	write("sample.ts", original);
+	assert.equal(run("--dry-run").status, 3);
 	write(
 		".assertlens.json",
 		JSON.stringify({ ...config, files: ["missing.ts"] }),
@@ -643,6 +644,54 @@ test("only changed scopes are reviewed, and findings keep configuration order", 
 	assert.equal(failed.report.review, "unavailable");
 	assert.deepEqual(failed.report.findings, []);
 	assert.equal(batches.length, 2);
+});
+
+test("unchanged scopes still run checks, then exit 3 without calling Jev", async (t) => {
+	const { runReview } = await import("../src/application/review.ts");
+	const { createCliGit } = await import("../src/git/cli.ts");
+	const { nodeProcess } = await import("../src/shared/process.ts");
+	const { repo, write } = fixture(t);
+	write("sample.ts", original);
+	let checks = 0;
+	const run = (status: number) =>
+		runReview(
+			{
+				git: createCliGit(nodeProcess),
+				checkRunner: {
+					run: () => {
+						checks++;
+						return {
+							status,
+							signal: null,
+							stdout: Buffer.alloc(0),
+							stderr: Buffer.alloc(0),
+							timedOut: false,
+						};
+					},
+				},
+				reviewClient: { review: () => assert.fail("Jev must not be called") },
+				env: { TYPESAFE_API_KEY: "test-only-token" },
+			},
+			{
+				repo,
+				config: ".assertlens.json",
+				base: "HEAD",
+				snapshot: false,
+				dryRun: false,
+				sandboxed: false,
+				network: false,
+				command: ["unused"],
+			},
+		);
+	const failed = await run(1);
+	assert.equal(failed.exitCode, 1);
+	const passed = await run(0);
+	assert.ok(passed.kind === "report");
+	assert.equal(passed.exitCode, 3);
+	assert.equal(passed.report.checks, "passed");
+	assert.equal(passed.report.review, "not_run");
+	assert.deepEqual(passed.report.unchanged, ["age_boundary"]);
+	assert.equal(checks, 2);
 });
 
 test("committed invalid UTF-8 is rejected instead of silently replaced", (t) => {

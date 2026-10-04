@@ -61,4 +61,10 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          node src/assertlens.ts --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" -- npm test >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          node src/assertlens.ts --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" -- npm test >> "$GITHUB_STEP_SUMMARY" || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo '::notice::No selected files changed; Jev review not run.'
+            exit 0
+          fi
+          exit "$status"

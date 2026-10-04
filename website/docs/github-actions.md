@@ -79,8 +79,9 @@ same-repository PRs. Restrict contributor access and review changes to
 `.github/workflows/` carefully.
 :::
 
-Changes only outside configured files produce an unavailable review, not a claim
-that the entire PR was checked.
+Changes only outside configured files make review `not_run` (exit `3`). The workflow
+and the reusable action report it as a notice rather than a failure; it is not a claim
+that the entire PR was checked. Missing keys and service failures still fail.
 
 ## Adopt in another TypeScript repository
 

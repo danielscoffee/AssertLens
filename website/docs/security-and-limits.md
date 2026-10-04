@@ -90,7 +90,7 @@ failures, and a changed source snapshot during checks cannot produce a completed
 review. A selected file missing in both revisions also fails validation.
 
 With no command, checks are `not_run`, not passed. Without `--snapshot`, scopes with
-only unchanged files are skipped; review is unavailable when every scope is unchanged. The CLI's [exit codes](cli-usage.md#reports-and-exit-codes)
+only unchanged files are skipped; review is `not_run` (exit `3`) when every scope is unchanged. The CLI's [exit codes](cli-usage.md#reports-and-exit-codes)
 distinguish unavailable review from failed executable checks.
 
 Source recollection is not a filesystem lock. Sandboxed command mutations are

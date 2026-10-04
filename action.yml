@@ -80,4 +80,10 @@ runs:
           mapfile -d '' -t command < "$command_file"
           args+=(-- "${command[@]}")
         fi
-        node "$GITHUB_ACTION_PATH/src/assertlens.ts" "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+        status=0
+        node "$GITHUB_ACTION_PATH/src/assertlens.ts" "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+        if [ "$status" -eq 3 ]; then
+          echo '::notice::No selected files changed; AssertLens review not run.'
+          exit 0
+        fi
+        exit "$status"
