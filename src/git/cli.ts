@@ -92,8 +92,8 @@ export function createCliGit(
 					.trim(),
 			);
 		},
-		collectState(repo, config, baseRef, headRef, snapshot = false) {
-			return readState(git, repo, config, baseRef, headRef, snapshot);
+		collectState(repo, config, baseRef, headRef) {
+			return readState(git, repo, config, baseRef, headRef);
 		},
 		createWorkspace(repo, headRef) {
 			return materializeWorkspace(git, writeBlob, repo, headRef);

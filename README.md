@@ -95,10 +95,33 @@ Edit `.assertlens.json` to name the exact files and claims you want reviewed:
 }
 ```
 
+An assertion can instead name its own files. A trailing `/` selects a folder:
+
+```json
+{
+  "files": ["src/auth.ts"],
+  "assertions": {
+    "expiry": "Expired tokens are rejected before protected data is returned.",
+    "routes": {
+      "text": "Every route handler calls requireSession before reading user data.",
+      "files": ["src/routes/", "src/auth.ts"]
+    }
+  }
+}
+```
+
 These are semantic review claims, not executable tests. Keep actual assertions in
 your test suite. Prefer narrow, falsifiable claims to “this code is correct.”
 
-- Select 1–20 literal, repository-relative paths and 1–20 named assertions.
+- Select 1–20 literal, repository-relative files or folders per list and 1–20 named
+  assertions. Top-level `files` is required only for string assertions.
+- Folders expand recursively to Git-visible files: tracked plus untracked files that
+  are not ignored locally, or the base and head trees with `--head`. Each expanded
+  file passes the same path, sensitive-path, and file-type checks; one failure makes
+  the review unavailable. A scope may expand to at most 50 files.
+- Assertions with the same files share one request; each distinct scope is a separate
+  request and API call. Without `--snapshot`, scopes whose files are all unchanged are
+  skipped and reported as unchanged.
 - Include relevant unchanged dependencies/tests explicitly; they are not discovered.
 - Jev receives full **before/after contents** of those files, commit identifiers,
   check status, and your assertion text. Check logs and credentials are not sent.
@@ -108,10 +131,13 @@ your test suite. Prefer narrow, falsifiable claims to “this code is correct.�
 - Secret-like paths are rejected as an accident guard, **not a secret scanner**.
   Do not select files containing credentials or personal data. Inspect dry-run output
   before sending private code; avoid saving sensitive payloads in shared logs.
-- Serialized review state and requests are capped at 96,000 bytes. A 64,000-byte
+- Each request must fit its model's token budget: `jev-1.13` allows 32k tokens for state
+  plus the longest question and 64k tokens for state plus all questions. Tokens are
+  estimated conservatively as bytes ÷ 3; aliases and unknown models use the `jev-1.13`
+  budget. An oversized scope fails before sending, with its estimated tokens. A 64,000-byte
   cap remains for configuration, responses, and individual source reads. Oversized
-  input fails instead of silently dropping context. These byte limits are not token
-  estimates; server context-limit errors also make review unavailable.
+  input fails instead of silently dropping context; server context-limit errors also
+  make review unavailable.
 
 For each assertion, Jev chooses `supported`, `contradicted`, or `insufficient`.
 Insufficient evidence and confidence below 0.8 become `needs_review`. Reports retain

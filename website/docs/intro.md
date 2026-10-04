@@ -42,7 +42,7 @@ no model-based merge-blocking mode.
 
 ## Scope
 
-Only explicitly selected files are reviewed. Include relevant unchanged
+Only explicitly selected files and folders are reviewed. Include relevant unchanged
 dependencies and tests yourself; AssertLens does not discover them.
 
 V1 omits inline PR comments, generated fixes, automatic test generation,

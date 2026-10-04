@@ -126,7 +126,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
 			process.stderr.write(
 				"Dry-run only: no checks executed and no data sent.\n",
 			);
-			process.stdout.write(`${JSON.stringify(result.request, null, 2)}\n`);
+			process.stdout.write(`${JSON.stringify(result.requests, null, 2)}\n`);
 			return result.exitCode;
 		}
 		output(result.report, json);

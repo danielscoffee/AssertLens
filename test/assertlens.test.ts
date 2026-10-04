@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
 	cpSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -68,7 +69,9 @@ test("dry-run captures before/after source without credentials or execution", (t
 	const { run } = fixture(t);
 	const result = run("--dry-run");
 	assert.equal(result.status, 0, result.stderr);
-	const request = JSON.parse(result.stdout);
+	const requests = JSON.parse(result.stdout);
+	assert.equal(requests.length, 1);
+	const [request] = requests;
 	assert.equal(request.model, config.model);
 	assert.deepEqual(request.state.files, [
 		{ path: "sample.ts", before: original, after: changed },
@@ -88,7 +91,7 @@ test("snapshot dry-run reviews unchanged files without relaxing the default", (t
 	assert.match(JSON.parse(normal.stdout).error, /--snapshot/);
 	const snapshot = run("--snapshot", "--dry-run");
 	assert.equal(snapshot.status, 0, snapshot.stderr);
-	const request = JSON.parse(snapshot.stdout);
+	const [request] = JSON.parse(snapshot.stdout);
 	assert.deepEqual(request.state.files, [
 		{ path: "sample.ts", before: original, after: original },
 	]);
@@ -99,7 +102,7 @@ test("committed snapshot reads committed source", (t) => {
 	const { run } = fixture(t);
 	const result = run("--snapshot", "--head", "HEAD", "--dry-run");
 	assert.equal(result.status, 0, result.stderr);
-	assert.equal(JSON.parse(result.stdout).state.files[0].after, original);
+	assert.equal(JSON.parse(result.stdout)[0].state.files[0].after, original);
 });
 
 test("snapshot mode preserves executable check and missing-key failures", (t) => {
@@ -159,7 +162,7 @@ test("selected untracked files are reviewed, unrelated files are not read", (t) 
 	write("unrelated.txt", "not selected");
 	const result = run("--dry-run");
 	assert.equal(result.status, 0, result.stderr);
-	const files = JSON.parse(result.stdout).state.files;
+	const files = JSON.parse(result.stdout)[0].state.files;
 	assert.equal(files.length, 2);
 	assert.equal(files[1].before, null);
 	assert.equal(files[1].after, "export const answer = 42;\n");
@@ -180,7 +183,7 @@ test("committed-head review ignores dirty local source and uses merge base", (t)
 	write("sample.ts", "dirty source must not be sent");
 	const result = run("--base", "main", "--head", head, "--dry-run");
 	assert.equal(result.status, 0, result.stderr);
-	const state = JSON.parse(result.stdout).state;
+	const state = JSON.parse(result.stdout)[0].state;
 	assert.equal(state.base, base);
 	assert.equal(state.head, head);
 	assert.equal(state.files[0].before, original);
@@ -453,6 +456,8 @@ test("invalid configuration, sensitive paths, symlinks, and oversized source fai
 		{ ...config, files: ["private.pem"] },
 		{ ...config, files: [".git/config"] },
 		{ ...config, files: ["sample.ts"], typo: true },
+		{ ...config, assertions: { bad: { text: "Claim.", file: ["sample.ts"] } } },
+		{ ...config, assertions: { bad: { text: "Claim.", files: [] } } },
 	]) {
 		write(".assertlens.json", JSON.stringify(invalid));
 		const result = run("--json", "--dry-run");
@@ -480,6 +485,164 @@ test("binary content, missing paths, and unchanged scope are not successful revi
 		JSON.stringify({ ...config, files: ["missing.ts"] }),
 	);
 	assert.equal(run("--dry-run").status, 2);
+});
+
+test("assertion scopes and folders become separate requests", (t) => {
+	const { repo, git, write, run } = fixture(t);
+	mkdirSync(join(repo, "lib/nested"), { recursive: true });
+	write("lib/kept.ts", "kept\n");
+	write("lib/removed.ts", "removed\n");
+	write("lib/nested/deep.ts", "deep\n");
+	write(".gitignore", "lib/ignored.ts\n");
+	git("add", "lib", ".gitignore");
+	git("commit", "-qm", "Add lib");
+	rmSync(join(repo, "lib/removed.ts"));
+	write("lib/added.ts", "added\n");
+	write("lib/ignored.ts", "ignored\n");
+	write(
+		".assertlens.json",
+		JSON.stringify({
+			files: ["sample.ts"],
+			assertions: {
+				age_boundary: config.assertions.age_boundary,
+				lib_values: { text: "Each lib file names itself.", files: ["lib/"] },
+				lib_nested: { text: "Nested files are lowercase.", files: ["lib/"] },
+			},
+		}),
+	);
+	const result = run("--dry-run");
+	assert.equal(result.status, 0, result.stderr);
+	const requests = JSON.parse(result.stdout);
+	assert.deepEqual(
+		requests.map((request: { questions: object }) => Object.keys(request.questions)),
+		[["age_boundary"], ["lib_values", "lib_nested"]],
+	);
+	assert.deepEqual(requests[1].state.files, [
+		{ path: "lib/added.ts", before: null, after: "added\n" },
+		{ path: "lib/kept.ts", before: "kept\n", after: "kept\n" },
+		{ path: "lib/nested/deep.ts", before: "deep\n", after: "deep\n" },
+		{ path: "lib/removed.ts", before: "removed\n", after: null },
+	]);
+});
+
+test("committed folders compare base and head trees, not local files", (t) => {
+	const { repo, git, write, run } = fixture(t);
+	mkdirSync(join(repo, "lib"));
+	write("lib/old.ts", "old\n");
+	git("add", "lib");
+	git("commit", "-qm", "Add old module");
+	write("lib/new.ts", "new\n");
+	git("rm", "-q", "lib/old.ts");
+	git("add", "lib");
+	git("commit", "-qm", "Replace module");
+	write("lib/dirty.ts", "dirty\n");
+	write(".assertlens.json", JSON.stringify({ ...config, files: ["lib/"] }));
+	const result = run("--base", "HEAD~1", "--head", "HEAD", "--dry-run");
+	assert.equal(result.status, 0, result.stderr);
+	assert.deepEqual(JSON.parse(result.stdout)[0].state.files, [
+		{ path: "lib/new.ts", before: null, after: "new\n" },
+		{ path: "lib/old.ts", before: "old\n", after: null },
+	]);
+});
+
+test("folder scopes fail closed on unsafe, empty, or oversized selections", (t) => {
+	const { repo, write, run } = fixture(t);
+	mkdirSync(join(repo, "lib"));
+	write("lib/.env", "TOKEN=x\n");
+	mkdirSync(join(repo, "many"));
+	for (let index = 0; index <= 50; index++) write(`many/${index}.ts`, "x\n");
+	for (const [files, error] of [
+		[["lib/"], /Sensitive/],
+		[["empty/"], /no Git-visible files/],
+		[["many/"], /more than 50 files/],
+		[["../lib/"], /literal relative/],
+		[["/"], /literal relative/],
+		[["secrets/"], /Sensitive/],
+	] as const) {
+		write(".assertlens.json", JSON.stringify({ ...config, files }));
+		const result = run("--json", "--dry-run");
+		assert.equal(result.status, 2, result.stderr);
+		assert.match(JSON.parse(result.stdout).error, error);
+	}
+	write(".assertlens.json", JSON.stringify({ assertions: config.assertions }));
+	assert.match(JSON.parse(run("--json", "--dry-run").stdout).error, /needs files/);
+});
+
+test("only changed scopes are reviewed, and findings keep configuration order", async (t) => {
+	const { runReview } = await import("../src/application/review.ts");
+	const { createCliGit } = await import("../src/git/cli.ts");
+	const { nodeProcess } = await import("../src/shared/process.ts");
+	const { renderReport } = await import("../src/report/report.ts");
+	const { git, repo, write } = fixture(t);
+	write("other.ts", "other\n");
+	write("third.ts", "third\n");
+	git("add", "other.ts", "third.ts");
+	git("commit", "-qm", "Add other modules");
+	write(
+		".assertlens.json",
+		JSON.stringify({
+			files: ["sample.ts"],
+			assertions: {
+				other_claim: { text: "Other is stable.", files: ["other.ts"] },
+				age_boundary: config.assertions.age_boundary,
+				pair_claim: { text: "Both agree.", files: ["sample.ts", "third.ts"] },
+				third_claim: "Sample exports eligible.",
+			},
+		}),
+	);
+	const finding = (id: string) => ({
+		id,
+		choice: "supported" as const,
+		verdict: "supported" as const,
+		confidence: 0.9,
+		probabilities: { supported: 0.9, contradicted: 0.05, insufficient: 0.05 },
+	});
+	const batches: string[][] = [];
+	const run = (fail = false) =>
+		runReview(
+			{
+				git: createCliGit(nodeProcess),
+				checkRunner: { run: () => assert.fail("no command") },
+				reviewClient: {
+					async review(request) {
+						const ids = Object.keys(request.questions);
+						batches.push(ids);
+						if (fail && batches.length === 2) throw new Error("Jev down.");
+						return { model: "jev-1.13.0", findings: ids.map(finding) };
+					},
+				},
+				env: { TYPESAFE_API_KEY: "test-only-token" },
+			},
+			{
+				repo,
+				config: ".assertlens.json",
+				base: "HEAD",
+				snapshot: false,
+				dryRun: false,
+				sandboxed: false,
+				network: false,
+			},
+		);
+	const result = await run();
+	assert.ok(result.kind === "report");
+	assert.equal(result.exitCode, 0);
+	assert.deepEqual(batches, [["age_boundary", "third_claim"], ["pair_claim"]]);
+	assert.deepEqual(result.report.unchanged, ["other_claim"]);
+	assert.deepEqual(
+		result.report.findings.map((item) => item.id),
+		["age_boundary", "pair_claim", "third_claim"],
+	);
+	const markdown = renderReport(result.report);
+	assert.match(markdown, /Unchanged, not reviewed: other\\_claim/);
+	assert.match(markdown, /Files: sample\.ts, third\.ts/);
+
+	batches.length = 0;
+	const failed = await run(true);
+	assert.ok(failed.kind === "report");
+	assert.equal(failed.exitCode, 2);
+	assert.equal(failed.report.review, "unavailable");
+	assert.deepEqual(failed.report.findings, []);
+	assert.equal(batches.length, 2);
 });
 
 test("committed invalid UTF-8 is rejected instead of silently replaced", (t) => {
@@ -674,49 +837,38 @@ test("missing, malformed, and contradictory API answers cannot become findings",
 	}
 });
 
-test("aggregate review payloads over 96,000 bytes fail closed", async () => {
-	const { makeRequest } = await import("../src/assertlens.ts");
+test("requests must fit the model's token budget", async (t) => {
+	const { makeRequest, review } = await import("../src/assertlens.ts");
+	const state = (bytes: number) => ({
+		base: "base",
+		head: "working-tree",
+		checks: "not_run" as const,
+		files: [{ path: "sample.ts", before: null, after: "x".repeat(bytes) }],
+	});
+	assert.ok(makeRequest(config, state(90_000)));
+	for (const model of ["jev-1.13.0", "jev-latest"])
+		assert.throws(
+			() => makeRequest({ ...config, model }, state(96_000)),
+			/^Error: Scope "age_boundary" needs ~32\.\dk of 32k tokens \(state ~32k \+ longest question ~0\.\dk\)\. Narrow its files or split the assertion\.$/,
+		);
+	const assertions = (count: number, length: number) =>
+		Object.fromEntries(
+			Array.from({ length: count }, (_, index) => [
+				`claim_${index}`,
+				"y".repeat(length),
+			]),
+		);
+	assert.ok(makeRequest({ ...config, assertions: assertions(20, 1_000) }, state(70_000)));
 	assert.throws(
-		() =>
-			makeRequest(config, {
-				base: "base",
-				head: "working-tree",
-				checks: "not_run",
-				files: [
-					{
-						path: "sample.ts",
-						before: "x".repeat(50_000),
-						after: "x".repeat(50_000),
-					},
-				],
-			}),
-		/State exceeds 96000-byte limit/,
+		() => makeRequest({ ...config, assertions: assertions(20, 6_000) }, state(80_000)),
+		/needs ~\d+(\.\d)?k of 64k tokens across all questions/,
 	);
-	const assertions = Object.fromEntries(
-		Array.from({ length: 20 }, (_, index) => [
-			`claim_${index}`,
-			"x".repeat(1_000),
-		]),
+	const fetch = t.mock.method(globalThis, "fetch", async () => Response.json({}));
+	await assert.rejects(
+		review({ ...makeRequest(config, state(10)), state: state(96_000) }, "test-only-token"),
+		/of 32k tokens/,
 	);
-	assert.throws(
-		() =>
-			makeRequest(
-				{ ...config, assertions },
-				{
-					base: "base",
-					head: "working-tree",
-					checks: "not_run",
-					files: [
-						{
-							path: "sample.ts",
-							before: "x".repeat(35_000),
-							after: "x".repeat(35_000),
-						},
-					],
-				},
-			),
-		/Request exceeds 96000-byte limit/,
-	);
+	assert.equal(fetch.mock.callCount(), 0);
 });
 
 test("service failure hides response bodies, missing keys make no network request", async (t) => {
@@ -840,21 +992,7 @@ test("entry point preserves existing public exports", async () => {
 	assert.equal(cli.renderReport, report.renderReport);
 });
 
-test("self-review scope includes every runtime module", () => {
-	const settings = JSON.parse(
-		readFileSync(new URL("../.assertlens.json", import.meta.url), "utf8"),
-	);
-	const modules = readdirSync(new URL("../src/", import.meta.url), {
-		encoding: "utf8",
-		recursive: true,
-	})
-		.filter((path) => path.endsWith(".ts"))
-		.map((path) => `src/${path}`);
-	assert.ok(settings.files.length <= 20);
-	assert.deepEqual([...settings.files].sort(), modules.sort());
-});
-
-test("self-review snapshot fits the aggregate review limit", (t) => {
+test("self-review scopes cover every runtime module within the token budget", (t) => {
 	const { repo, git, write, run } = fixture(t);
 	cpSync(new URL("../src/", import.meta.url), join(repo, "src"), {
 		recursive: true,
@@ -867,9 +1005,20 @@ test("self-review snapshot fits the aggregate review limit", (t) => {
 	git("commit", "-qm", "Add self-review source");
 	const result = run("--snapshot", "--dry-run", "--json");
 	assert.equal(result.status, 0, result.stdout || result.stderr);
-	const requestBytes = Buffer.byteLength(JSON.stringify(JSON.parse(result.stdout)));
-	assert.ok(requestBytes > 64_000);
-	assert.ok(requestBytes <= 96_000);
+	const requests: { state: { files: { path: string }[] } }[] = JSON.parse(
+		result.stdout,
+	);
+	assert.ok(requests.length > 1);
+	const modules = readdirSync(new URL("../src/", import.meta.url), {
+		encoding: "utf8",
+		recursive: true,
+	})
+		.filter((path) => path.endsWith(".ts"))
+		.map((path) => `src/${path}`);
+	const reviewed = new Set(
+		requests.flatMap((request) => request.state.files.map((file) => file.path)),
+	);
+	assert.deepEqual([...reviewed].sort(), modules.sort());
 });
 
 test("AssertLens package uses TypeScript directly", () => {
@@ -936,14 +1085,14 @@ test("documentation describes sandbox behavior and residual limits", () => {
 	])
 		assert.ok(security.includes(`\`${root}\``), `missing runtime root ${root}`);
 	assert.match(security, /Git path.*UTF-8|UTF-8.*Git path/i);
-	assert.match(readme, /review state and requests are capped at 96,000/i);
+	assert.match(readme, /32k tokens for state\s+plus the longest question/i);
 	assert.match(
 		readme,
 		/64,000-byte\s+cap remains for configuration, responses, and individual source reads/i,
 	);
 	assert.match(
 		security,
-		/Serialized review state and outbound request \| 96,000 bytes each/,
+		/Request token budget \| Model context: jev-1\.13 allows 32k tokens/,
 	);
 	assert.match(
 		security,

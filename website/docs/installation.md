@@ -32,7 +32,8 @@ From the repository root:
 node src/assertlens.ts --snapshot --dry-run
 ```
 
-The supplied `.assertlens.json` selects the CLI's runtime modules. `--snapshot` allows
+The supplied `.assertlens.json` selects the CLI's runtime modules through
+per-assertion folder scopes. `--snapshot` allows
 review when selected files match the base. `--dry-run` prints the exact outbound
 JSON without credentials, network access, or command execution.
 
