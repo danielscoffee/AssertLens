@@ -8,8 +8,9 @@ source. Neither passing tests nor model confidence proves general correctness.**
 
 ## Documentation
 
-Guides live in [`website/docs/`](website/docs/intro.md). Run the isolated Docusaurus
-site locally:
+Guides live in [`website/docs/`](website/docs/intro.md) and are published at
+<https://danielscoffee.github.io/AssertLens/>. Run the isolated Docusaurus site
+locally:
 
 ```bash
 npm ci --prefix website --ignore-scripts
