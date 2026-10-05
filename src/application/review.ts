@@ -1,10 +1,15 @@
 import { resolve } from "node:path";
 import type { CheckResult, CheckRunner } from "../check/check.ts";
 import { checkPassed } from "../check/check.ts";
-import { loadConfig } from "../config/config.ts";
+import { loadConfig, resolveEndpoint } from "../config/config.ts";
 import type { GitPort } from "../git/git.ts";
-import type { Finding, ReviewClient, ReviewRequest } from "../jev/jev.ts";
-import { makeRequest } from "../jev/request.ts";
+import {
+	providers,
+	type Finding,
+	type ReviewClient,
+	type ReviewRequest,
+} from "../providers/types.ts";
+import { makeRequest } from "../providers/request.ts";
 import type { Report } from "../report/report.ts";
 
 type CheckDependencies = {
@@ -30,6 +35,7 @@ export type ReviewOptions = Omit<CheckOnlyOptions, "command"> & {
 	base: string;
 	snapshot: boolean;
 	dryRun: boolean;
+	endpoint?: string;
 	command?: CheckOnlyOptions["command"];
 };
 
@@ -122,6 +128,7 @@ export async function runReview(
 	try {
 		const repo = dependencies.git.repositoryRoot(options.repo);
 		const config = loadConfig(resolve(repo, options.config));
+		const endpoint = resolveEndpoint(config.provider, options.endpoint);
 		const collect = () =>
 			config.scopes.map((scope) =>
 				dependencies.git.collectState(repo, scope, options.base, options.head),
@@ -153,7 +160,7 @@ export async function runReview(
 			unchanged: ids.filter((id) => !files[id]),
 		});
 		const requests = () =>
-			reviewed.map(({ scope, state }) => makeRequest(scope, state));
+			reviewed.map(({ scope, state }) => makeRequest(scope, state, endpoint));
 		if (options.dryRun)
 			return reviewed.length
 				? { kind: "dry-run", requests: requests(), exitCode: 0 }
@@ -179,17 +186,21 @@ export async function runReview(
 		// Sequential: the first failure stops further quota use and makes the review unavailable.
 		const findings: Finding[] = [];
 		const models = new Set<string>();
+		let calibrated = true;
 		for (const request of requests()) {
 			const result = await dependencies.reviewClient.review(
 				request,
-				dependencies.env.TYPESAFE_API_KEY ?? "",
+				dependencies.env[providers[config.provider].key] ?? "",
 			);
 			models.add(result.model);
 			findings.push(...result.findings);
+			calibrated &&= result.calibrated ?? true;
 		}
 		findings.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
 		Object.assign(report, {
+			provider: config.provider,
 			model: [...models].join(", "),
+			calibrated,
 			findings,
 			review: "complete",
 		});

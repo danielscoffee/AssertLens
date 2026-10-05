@@ -83,6 +83,21 @@ test("dry-run captures before/after source without credentials or execution", (t
 	assert.match(result.stderr, /dry.run/i);
 });
 
+test("dry-run prints the configured provider's exact request body", (t) => {
+	const { run, write } = fixture(t);
+	write(".assertlens.json", JSON.stringify({ ...config, provider: "anthropic", model: "claude-opus-5-5" }));
+	const result = run("--dry-run");
+	assert.equal(result.status, 0, result.stderr);
+	const [body] = JSON.parse(result.stdout);
+	assert.equal(body.model, "claude-opus-5-5");
+	assert.equal(body.output_config.format.type, "json_schema");
+	assert.match(body.messages[0].content, /An 18-year-old is eligible/);
+	assert.match(result.stderr, /1 request\(s\) would go to https:\/\/api\.anthropic\.com\/v1\/messages/);
+	const rejected = run("--json", "--dry-run", "--endpoint", "https://evil.example/v1/messages");
+	assert.equal(rejected.status, 2);
+	assert.match(JSON.parse(rejected.stdout).error, /only supported for the laya and openai/);
+});
+
 test("snapshot dry-run reviews unchanged files without relaxing the default", (t) => {
 	const { run, write } = fixture(t);
 	write("sample.ts", original);
@@ -694,6 +709,41 @@ test("unchanged scopes still run checks, then exit 3 without calling Jev", async
 	assert.equal(checks, 2);
 });
 
+test("--init writes a starter configuration from detected folders without overwriting", (t) => {
+	const { repo, run } = fixture(t);
+	rmSync(join(repo, ".assertlens.json"));
+	assert.match(JSON.parse(run("--init", "--json").stdout).error, /No source folder/);
+	mkdirSync(join(repo, "src"));
+	mkdirSync(join(repo, "tests"));
+	writeFileSync(join(repo, "src/a.ts"), "export const a = 1;\n");
+	writeFileSync(join(repo, "tests/a.test.ts"), 'import "../src/a.ts";\n');
+	const result = run("--init");
+	assert.equal(result.status, 0, result.stderr);
+	const written = JSON.parse(readFileSync(join(repo, ".assertlens.json"), "utf8"));
+	assert.equal(written.provider, "jev");
+	assert.deepEqual(written.assertions.errors_handled.files, ["src/"]);
+	assert.deepEqual(written.assertions.changes_tested.files, ["src/", "tests/"]);
+	assert.match(JSON.parse(run("--init", "--json").stdout).error, /not overwritten/);
+	assert.equal(run("--init", "--dry-run").status, 2);
+	assert.equal(run("--snapshot", "--dry-run").status, 0);
+});
+
+test("the contradicted example prints its off-by-one request without a key", () => {
+	const result = spawnSync(
+		process.execPath,
+		[fileURLToPath(new URL("../examples/contradicted.ts", import.meta.url))],
+		{ encoding: "utf8", env: { ...process.env, TYPESAFE_API_KEY: "" } },
+	);
+	assert.equal(result.status, 0, result.stderr);
+	const [request] = JSON.parse(result.stdout);
+	assert.deepEqual(request.state.files[0], {
+		path: "eligible.ts",
+		before: "export const eligible = (age: number) => age >= 18;\n",
+		after: "export const eligible = (age: number) => age > 18;\n",
+	});
+	assert.match(request.questions.adults_eligible.instructions, /An 18-year-old is eligible/);
+});
+
 test("committed invalid UTF-8 is rejected instead of silently replaced", (t) => {
 	const { repo, git, run } = fixture(t);
 	writeFileSync(join(repo, "sample.ts"), Buffer.from([0xff, 0xfe]));
@@ -750,7 +800,9 @@ test("HTTP contract batches questions and reports valid judgments as advisory", 
 				new Headers(init?.headers).get("Authorization"),
 				"Bearer test-only-token",
 			);
-			assert.deepEqual(JSON.parse(String(init?.body)), request);
+			const { provider, endpoint, ...wire } = request;
+			assert.deepEqual([provider, endpoint], ["jev", "https://api.typesafe.ai/v1/systemone"]);
+			assert.deepEqual(JSON.parse(String(init?.body)), wire);
 			assert.ok(init?.signal);
 			return Response.json(answer("contradicted"));
 		},
@@ -1017,7 +1069,7 @@ test("malformed, oversized, and disconnected HTTP responses fail closed", async 
 test("modules compose a local review request without the CLI", async (t) => {
 	const { loadConfig } = await import("../src/config/config.ts");
 	const { cliGit } = await import("../src/git/cli.ts");
-	const { makeRequest } = await import("../src/jev/request.ts");
+	const { makeRequest } = await import("../src/providers/request.ts");
 	const { repo } = fixture(t);
 	const root = cliGit.repositoryRoot(repo);
 	const settings = loadConfig(join(root, ".assertlens.json"));
@@ -1033,8 +1085,8 @@ test("modules compose a local review request without the CLI", async (t) => {
 
 test("entry point preserves existing public exports", async () => {
 	const cli = await import("../src/assertlens.ts");
-	const request = await import("../src/jev/request.ts");
-	const http = await import("../src/jev/http.ts");
+	const request = await import("../src/providers/request.ts");
+	const http = await import("../src/providers/http.ts");
 	const report = await import("../src/report/report.ts");
 	assert.equal(cli.makeRequest, request.makeRequest);
 	assert.equal(cli.review, http.review);

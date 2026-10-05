@@ -1,18 +1,43 @@
 import { object } from "../shared/validation.ts";
 import {
 	criteria,
+	providers,
 	type Choice,
 	type Finding,
 	type ReviewRequest,
 	type ReviewResult,
-} from "./jev.ts";
+} from "./types.ts";
 
 export const REVIEW_CONFIDENCE = 0.8; // Advisory starting point, not a calibrated correctness threshold.
+
+// Insufficient evidence or low confidence always asks for human review.
+export function finding(
+	id: string,
+	choice: Choice,
+	confidence: number,
+	probabilities: Record<Choice, number>,
+	rationale?: string,
+): Finding {
+	return {
+		id,
+		choice,
+		confidence,
+		probabilities,
+		verdict:
+			choice === "insufficient" || confidence < REVIEW_CONFIDENCE
+				? "needs_review"
+				: choice,
+		...(rationale ? { rationale } : {}),
+	};
+}
+
+// Jev and Laya share the /v1/systemone answer format.
 
 export function parseResponse(
 	raw: unknown,
 	request: ReviewRequest,
 ): ReviewResult {
+	const label = providers[request.provider ?? "jev"].label;
 	if (
 		!object(raw) ||
 		typeof raw.model !== "string" ||
@@ -20,12 +45,12 @@ export function parseResponse(
 		raw.model.length > 128 ||
 		!object(raw.answers)
 	) {
-		throw new Error("Invalid Jev response: missing model or answers.");
+		throw new Error(`Invalid ${label} response: missing model or answers.`);
 	}
 	const answers = raw.answers;
 	const ids = Object.keys(request.questions);
 	if (Object.keys(answers).length !== ids.length)
-		throw new Error("Invalid Jev response: missing or unexpected answers.");
+		throw new Error(`Invalid ${label} response: missing or unexpected answers.`);
 	const findings = ids.map((id): Finding => {
 		const answer = answers[id];
 		if (
@@ -39,7 +64,7 @@ export function parseResponse(
 			answer.confidence > 1 ||
 			!object(answer.probabilities)
 		)
-			throw new Error(`Invalid Jev answer for ${id}.`);
+			throw new Error(`Invalid ${label} answer for ${id}.`);
 		const probabilities = answer.probabilities;
 		const options = Object.keys(criteria);
 		if (
@@ -52,7 +77,7 @@ export function parseResponse(
 					probabilities[key] > 1,
 			)
 		)
-			throw new Error(`Invalid Jev probabilities for ${id}.`);
+			throw new Error(`Invalid ${label} probabilities for ${id}.`);
 		const distribution = probabilities as Record<Choice, number>;
 		const choice = answer.choice as Choice;
 		if (
@@ -60,18 +85,16 @@ export function parseResponse(
 				0.00001 ||
 			distribution[choice] < Math.max(...Object.values(distribution)) - 0.00001
 		) {
-			throw new Error(`Invalid Jev probability distribution for ${id}.`);
+			throw new Error(`Invalid ${label} probability distribution for ${id}.`);
 		}
-		return {
-			id,
-			choice,
-			confidence: answer.confidence,
-			probabilities: distribution,
-			verdict:
-				choice === "insufficient" || answer.confidence < REVIEW_CONFIDENCE
-					? "needs_review"
-					: choice,
-		};
+		// Laya's confidence is 1 - normalised entropy; answer_confidence matches Jev's meaning.
+		const confidence =
+			typeof answer.answer_confidence === "number" &&
+			answer.answer_confidence >= 0 &&
+			answer.answer_confidence <= 1
+				? answer.answer_confidence
+				: answer.confidence;
+		return finding(id, choice, confidence, distribution);
 	});
-	return { model: raw.model, findings };
+	return { model: raw.model, findings, calibrated: request.provider !== "laya" };
 }
