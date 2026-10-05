@@ -9,7 +9,27 @@ source. Neither passing tests nor model confidence proves general correctness.**
 
 ## Quick start
 
-As a GitHub Action, on a trusted-base checkout (see [GitHub pull requests](#github-pull-requests)):
+**Sandboxed PR checks, no API key.** Run untrusted pull-request tests in Bubblewrap:
+no network, no secrets, and only a disposable copy of the commit plus read-only
+system tool directories.
+
+```yaml
+- uses: actions/checkout@v6
+  with:
+    persist-credentials: false
+- uses: danielscoffee/AssertLens@v0.1.0
+  with:
+    head: HEAD
+    check-only: "true"
+    command: '["npm", "test"]'
+```
+
+Projects that need dependencies can install them inside the sandbox with network
+enabled for that command only: `command: '["sh", "-c", "npm ci --ignore-scripts && npm test"]'`
+and `sandbox-network: "true"`. The sandbox does not cap memory, disk, or processes.
+
+**Advisory review** of named assertions, on a trusted-base checkout (see
+[GitHub pull requests](#github-pull-requests)):
 
 ```yaml
 - uses: danielscoffee/AssertLens@v0.1.0
@@ -23,6 +43,29 @@ As a GitHub Action, on a trusted-base checkout (see [GitHub pull requests](#gith
 
 Or from npm (`npm install --global assertlens`) or the container image
 `ghcr.io/danielscoffee/assertlens`.
+
+**Set up a repository** with a starter configuration from detected `src/` and test
+folders, then replace its generic assertions with narrow claims:
+
+```bash
+assertlens --init
+assertlens --snapshot --dry-run
+```
+
+**See a contradicted finding**: `node examples/contradicted.ts [provider] [model] [endpoint]`
+builds a throwaway repository where `age >= 18` became `age > 18` and reviews the
+claim "An 18-year-old is eligible." It runs live when the provider's key is set or an
+endpoint is given, and prints the exact request otherwise:
+
+```bash
+TYPESAFE_API_KEY=... node examples/contradicted.ts
+ANTHROPIC_API_KEY=... node examples/contradicted.ts anthropic
+node examples/contradicted.ts openai qwen2.5:7b http://localhost:11434/v1/chat/completions
+```
+
+Provider APIs need API keys; consumer subscriptions such as Claude Pro/Max or ChatGPT
+Plus do not include API access. A local OpenAI-compatible server such as Ollama tests
+the `openai` provider without a key or cost.
 
 ## Documentation
 
@@ -108,6 +151,26 @@ Bubblewrap isolates mounted files, environment, processes, and network by defaul
 It does not impose memory, disk, or process-count quotas, so untrusted code can still
 cause denial of service before the timeout. Use trusted CLI and configuration from
 the base branch when reviewing another repository.
+
+## Providers
+
+Jev is the default and recommended judge. Set `"provider"` in `.assertlens.json` to
+use another one:
+
+| Provider | Default model | Key | Probabilities |
+| --- | --- | --- | --- |
+| `jev` | `jev-1.13.0` | `TYPESAFE_API_KEY` | Calibrated |
+| `laya` | `typed-decisions` | `LAYA_API_KEY` (optional on localhost) | Uncalibrated as shipped |
+| `anthropic` | `claude-opus-5-5` | `ANTHROPIC_API_KEY` | Model-reported |
+| `openai` | set `model` | `OPENAI_API_KEY` (optional on localhost) | Model-reported |
+
+[Laya](https://github.com/NandhaKishorM/laya) speaks Jev's `/v1/systemone` format and
+can run locally, but its 512–1,024-token context fits only tiny scopes. Claude and
+OpenAI-compatible models return model-reported probabilities and a short rationale
+per assertion, which reports label as uncalibrated. `--endpoint` points `laya` or
+`openai` at a self-hosted or compatible server (HTTPS, or HTTP on `localhost`); it is
+an invoker option, never read from configuration, so a reviewed repository cannot
+redirect your source or key. See the [providers guide](website/docs/providers.md).
 
 ## Assertions and scope
 
@@ -313,7 +376,7 @@ who can push `v*` tags, and required reviewers on both environments.
 | `src/check/` | Check-runner port and explicit direct adapter |
 | `src/config/` | Configuration parsing and validation |
 | `src/git/` | Git adapter, bounded review state, and disposable workspaces |
-| `src/jev/` | Request construction, HTTP adapter, and answer validation |
+| `src/providers/` | Jev, Laya, Claude, and OpenAI-compatible requests, budgets, HTTP, and answer validation |
 | `src/report/` | Report types and Markdown rendering |
 | `src/sandbox/` | Bubblewrap adapter and isolation policy |
 | `src/shared/` | Shared process adapter, size limits, and guards |

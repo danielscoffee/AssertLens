@@ -6,8 +6,10 @@ description: Understand source sharing, command trust boundaries, and advisory r
 ## Source sharing
 
 Live reviews send selected files' full before/after contents, commit identifiers,
-check status, and assertion text to TypeSafe. Check logs and environment credentials
-are not included in that payload. The API key authenticates the HTTP request.
+check status, and assertion text to the configured [provider](providers.md):
+TypeSafe by default. Check logs and environment credentials are not included in that
+payload. The provider's API key authenticates the HTTP request, and `--endpoint`
+overrides come only from the invoker, never from repository configuration.
 
 Folder entries send every Git-visible file beneath them, including local untracked
 files that are not ignored. Only select source you are permitted to share. Never select files containing

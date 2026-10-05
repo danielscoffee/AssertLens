@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { providers, type Provider } from "../providers/types.ts";
 import { bounded, object } from "../shared/validation.ts";
 
-const MODEL = "jev-1.13.0";
-
 export type Config = {
+	provider: Provider;
 	model: string;
 	files: string[];
 	assertions: Record<string, string>;
@@ -62,16 +62,22 @@ export function loadConfig(path: string): ReviewConfig {
 	if (
 		!object(value) ||
 		Object.keys(value).some(
-			(key) => !["model", "files", "assertions"].includes(key),
+			(key) => !["provider", "model", "files", "assertions"].includes(key),
 		)
 	) {
 		throw new Error(
-			"Invalid configuration fields. Expected model, files, assertions.",
+			"Invalid configuration fields. Expected provider, model, files, assertions.",
 		);
 	}
-	const model = value.model ?? MODEL;
-	if (typeof model !== "string" || !/^jev-[a-z0-9.-]+$/.test(model))
-		throw new Error("Invalid Jev model.");
+	const provider = value.provider ?? "jev";
+	if (typeof provider !== "string" || !Object.hasOwn(providers, provider))
+		throw new Error(
+			`Invalid provider. Expected one of: ${Object.keys(providers).join(", ")}.`,
+		);
+	const info = providers[provider as Provider];
+	const model = value.model ?? info.model;
+	if (typeof model !== "string" || !info.models.test(model))
+		throw new Error(`Invalid or missing ${info.label} model.`);
 	const defaults = value.files === undefined ? undefined : entries(value.files);
 	if (
 		!object(value.assertions) ||
@@ -102,11 +108,46 @@ export function loadConfig(path: string): ReviewConfig {
 				"Each assertion needs files: set top-level files or the assertion's own files.",
 			);
 		const key = JSON.stringify([...files].sort());
-		const scope = scopes.get(key) ?? { model, files, assertions: {} };
+		const scope = scopes.get(key) ?? {
+			provider: provider as Provider,
+			model,
+			files,
+			assertions: {},
+		};
 		scope.assertions[id] = text;
 		scopes.set(key, scope);
 		assertions[id] = text;
 	}
 	const files = [...new Set([...scopes.values()].flatMap((scope) => scope.files))];
-	return { model, files, assertions, scopes: [...scopes.values()] };
+	return {
+		provider: provider as Provider,
+		model,
+		files,
+		assertions,
+		scopes: [...scopes.values()],
+	};
+}
+
+// --endpoint comes from the invoker, never from repository configuration, so a
+// reviewed repository cannot redirect source or keys. Loopback may use HTTP.
+export function resolveEndpoint(provider: Provider, override?: string): string {
+	if (override === undefined) return providers[provider].endpoint;
+	if (provider !== "laya" && provider !== "openai")
+		throw new Error("--endpoint is only supported for the laya and openai providers.");
+	let url: URL;
+	try {
+		url = new URL(override);
+	} catch {
+		throw new Error("--endpoint must be an absolute URL.");
+	}
+	const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+	if (
+		url.username ||
+		url.password ||
+		!(url.protocol === "https:" || (url.protocol === "http:" && loopback))
+	)
+		throw new Error(
+			"--endpoint must use HTTPS, or HTTP on localhost, without credentials.",
+		);
+	return url.href;
 }

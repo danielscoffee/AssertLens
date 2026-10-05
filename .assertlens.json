@@ -7,7 +7,7 @@
     },
     "invalid_evidence": {
       "text": "If reviewClient.review throws, including parseResponse rejecting a missing, unexpected, or malformed answer, runReview returns review unavailable, exitCode 2, and no findings.",
-      "files": ["src/application/", "src/jev/"]
+      "files": ["src/application/", "src/providers/"]
     },
     "advisory_only": {
       "text": "A completed runReview always returns exitCode 0; finding verdicts never change the checks status or the exit code.",
