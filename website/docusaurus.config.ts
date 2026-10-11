@@ -9,6 +9,7 @@ const config: Config = {
 	url: "https://danielscoffee.github.io",
 	baseUrl: "/AssertLens/",
 	trailingSlash: false,
+	favicon: "img/logo.svg",
 	onBrokenLinks: "throw",
 	onBrokenAnchors: "throw",
 	markdown: {
@@ -39,6 +40,11 @@ const config: Config = {
 		},
 		navbar: {
 			title: "AssertLens",
+			logo: {
+				alt: "AssertLens logo",
+				src: "img/logo.svg",
+				srcDark: "img/logo-dark.svg",
+			},
 			items: [
 				{
 					type: "docSidebar",

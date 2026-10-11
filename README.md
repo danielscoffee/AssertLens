@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/static/img/logo-dark.svg">
+    <img src="website/static/img/logo.svg" width="96" height="96" alt="AssertLens logo">
+  </picture>
+</p>
+
 # AssertLens
 
 Run local correctness checks and advisory GitHub pull-request reviews with AssertLens.
