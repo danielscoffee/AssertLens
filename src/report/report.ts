@@ -1,6 +1,6 @@
 import type { Checks } from "../git/git.ts";
-import type { Finding } from "../jev/jev.ts";
-import { REVIEW_CONFIDENCE } from "../jev/response.ts";
+import type { Finding } from "../providers/types.ts";
+import { REVIEW_CONFIDENCE } from "../providers/response.ts";
 
 export type Report = {
 	mode: "advisory";
@@ -12,6 +12,8 @@ export type Report = {
 	head?: string;
 	scope?: string[];
 	assertions?: Record<string, string>;
+	provider?: string;
+	calibrated?: boolean;
 	files?: Record<string, string[]>;
 	unchanged?: string[];
 	model?: string;
@@ -48,7 +50,14 @@ export function renderReport(report: Report): string {
 		`- Checks: **${report.checks}**`,
 		`- Review: **${report.review}**${tally ? ` (${tally})` : ""}`,
 	];
-	if (report.model) lines.push(`- Model: ${markdownText(report.model)}`);
+	if (report.model)
+		lines.push(
+			`- Model: ${markdownText(report.provider ? `${report.provider} / ${report.model}` : report.model)}`,
+		);
+	if (report.calibrated === false)
+		lines.push(
+			"- Probabilities are model-reported and uncalibrated; treat confidence as a rough signal.",
+		);
 	if (report.base)
 		lines.push(
 			`- Compared: ${markdownText(report.base)} → ${markdownText(report.head ?? "")}`,
@@ -71,6 +80,8 @@ export function renderReport(report: Report): string {
 		lines.push("", `### ${markdownText(finding.id)}: ${finding.verdict}`, "");
 		if (assertion) lines.push(`> ${markdownText(assertion)}`, "");
 		lines.push(explain(finding), "");
+		if (finding.rationale)
+			lines.push(`Model rationale: ${markdownText(finding.rationale)}`, "");
 		if (scopes.size > 1 && report.files?.[finding.id])
 			lines.push(`Files: ${report.files[finding.id].map(markdownText).join(", ")}`, "");
 		lines.push(

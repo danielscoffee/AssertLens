@@ -1,7 +1,14 @@
 import type { ProcessPort } from "../shared/process.ts";
 import type { CheckRunner } from "./check.ts";
 
-const SERVICE_TOKENS = ["TYPESAFE_API_KEY", "GITHUB_TOKEN", "GH_TOKEN"];
+const SERVICE_TOKENS = [
+	"TYPESAFE_API_KEY",
+	"LAYA_API_KEY",
+	"ANTHROPIC_API_KEY",
+	"OPENAI_API_KEY",
+	"GITHUB_TOKEN",
+	"GH_TOKEN",
+];
 
 export function createDirectRunner(process: ProcessPort): CheckRunner {
 	return {

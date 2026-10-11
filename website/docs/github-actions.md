@@ -95,6 +95,28 @@ The CLI itself has no runtime npm dependencies. Do not install PR dependencies o
 the host or expose credentials/network to untrusted checks. Execute PR code only
 through the trusted Bubblewrap runner.
 
+## Sandboxed checks without a key
+
+`check-only` runs a command in Bubblewrap without configuration, credentials, or a
+review provider. It suits pull-request tests you do not trust: the command sees a
+disposable copy of the committed tree, no network by default, no service tokens, and
+no host home or `.git`.
+
+```yaml
+- uses: actions/checkout@v6
+  with:
+    persist-credentials: false
+- uses: danielscoffee/AssertLens@v0.1.0
+  with:
+    head: HEAD
+    check-only: "true"
+    command: '["npm", "test"]'
+```
+
+Projects that need dependencies can install them inside the sandbox with network
+enabled for that command only: `command: '["sh", "-c", "npm ci --ignore-scripts && npm test"]'`
+and `sandbox-network: "true"`. The sandbox does not cap memory, disk, or processes.
+
 ## Reusable action
 
 Or use the reusable composite action, which runs the CLI from the action's own pinned

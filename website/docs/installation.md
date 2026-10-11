@@ -35,6 +35,26 @@ npm test
 Tests use temporary Git repositories, subprocesses, and mocked HTTP responses.
 They test behavior and failure handling, not live Jev accuracy.
 
+## Start a configuration
+
+`--init` writes a starter `.assertlens.json` from a detected source folder (`src`,
+`lib`, `app`, ...) and test folder (`test`, `tests`, `__tests__`, `spec`). It never
+overwrites an existing file. Replace its generic assertions with narrow,
+falsifiable claims about your code:
+
+```bash
+assertlens --init
+```
+
+To see a contradicted finding end to end, run
+`node examples/contradicted.ts [provider] [model] [endpoint]` from a source checkout.
+It reviews an off-by-one change against "An 18-year-old is eligible." live when the
+provider's API key is set or an endpoint is given, and prints the request otherwise.
+For example, `node examples/contradicted.ts anthropic` with `ANTHROPIC_API_KEY`, or a
+local Ollama server with
+`node examples/contradicted.ts openai qwen2.5:7b http://localhost:11434/v1/chat/completions`.
+Provider APIs need API keys; Claude and ChatGPT subscriptions do not include API access.
+
 ## Inspect a payload first
 
 From the repository root:

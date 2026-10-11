@@ -94,6 +94,9 @@ test("direct runner strips service tokens and preserves harmless environment", (
 		env: {
 			SAFE_VALUE: "kept",
 			TYPESAFE_API_KEY: "secret",
+			LAYA_API_KEY: "secret",
+			ANTHROPIC_API_KEY: "secret",
+			OPENAI_API_KEY: "secret",
 			GITHUB_TOKEN: "secret",
 			GH_TOKEN: "secret",
 		},

@@ -1,13 +1,32 @@
 import type { Config } from "../config/config.ts";
 import type { State } from "../git/git.ts";
-import { criteria, type ReviewRequest } from "./jev.ts";
+import {
+	criteria,
+	providers,
+	type Provider,
+	type ReviewRequest,
+} from "./types.ts";
 
-// Jev limits tokens, not bytes; 3 bytes per token is conservative for JSON-escaped source.
+// Models limit tokens, not bytes; 3 bytes per token is conservative for JSON-escaped source.
 const BYTES_PER_TOKEN = 3;
-// From https://docs.typesafe.ai/models.md. Aliases and unknown models use jev-1.13's budget.
-const BUDGETS: Record<string, { state: number; request: number }> = {
-	"jev-1.13": { state: 32_000, request: 64_000 },
-};
+
+// Context per request: state plus the longest question, and state plus all questions.
+// Jev: docs.typesafe.ai/models. Laya reads state once per question, so only the
+// first limit applies. LLMs keep headroom for instructions and output.
+function budget({ provider, model }: ReviewRequest) {
+	switch (provider) {
+		case "jev":
+			return { state: 32_000, request: 64_000 };
+		case "laya":
+			return { state: model === "english" ? 512 : 1_024, request: Infinity };
+		case "anthropic":
+			return model.startsWith("claude-haiku")
+				? { state: 180_000, request: 180_000 }
+				: { state: 900_000, request: 900_000 };
+		case "openai":
+			return { state: 100_000, request: 100_000 };
+	}
+}
 
 const tokens = (value: unknown) =>
 	Math.ceil(Buffer.byteLength(JSON.stringify(value)) / BYTES_PER_TOKEN);
@@ -15,29 +34,34 @@ const thousands = (count: number) => `${+(count / 1000).toFixed(1)}k`;
 
 // State plus the longest question, and state plus all questions, must fit the model's context.
 export function withinBudget(request: ReviewRequest): ReviewRequest {
-	const budget =
-		BUDGETS[/^jev-\d+\.\d+/.exec(request.model)?.[0] ?? ""] ??
-		BUDGETS["jev-1.13"];
+	const limit = budget(request);
 	const state = tokens(request.state);
 	const questions = Object.values(request.questions).map(tokens);
 	const longest = Math.max(0, ...questions);
 	const total = questions.reduce((sum, count) => sum + count, state);
 	const scope = `Scope "${Object.keys(request.questions).join(", ")}"`;
-	if (state + longest > budget.state)
+	if (state + longest > limit.state)
 		throw new Error(
-			`${scope} needs ~${thousands(state + longest)} of ${thousands(budget.state)} tokens ` +
+			`${scope} needs ~${thousands(state + longest)} of ${thousands(limit.state)} tokens ` +
 				`(state ~${thousands(state)} + longest question ~${thousands(longest)}). ` +
 				"Narrow its files or split the assertion.",
 		);
-	if (total > budget.request)
+	if (total > limit.request)
 		throw new Error(
-			`${scope} needs ~${thousands(total)} of ${thousands(budget.request)} tokens across all questions. Split its assertions.`,
+			`${scope} needs ~${thousands(total)} of ${thousands(limit.request)} tokens across all questions. Split its assertions.`,
 		);
 	return request;
 }
 
-export function makeRequest(config: Config, state: State): ReviewRequest {
+export function makeRequest(
+	config: Pick<Config, "model" | "assertions"> & { provider?: Provider },
+	state: State,
+	endpoint?: string,
+): ReviewRequest {
+	const provider = config.provider ?? "jev";
 	const request: ReviewRequest = {
+		provider,
+		endpoint: endpoint ?? providers[provider].endpoint,
 		model: config.model,
 		state,
 		questions: Object.fromEntries(

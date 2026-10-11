@@ -6,6 +6,7 @@ const sidebars: SidebarsConfig = {
 		"installation",
 		"cli-usage",
 		"configuration",
+		"providers",
 		"github-actions",
 		"security-and-limits",
 	],

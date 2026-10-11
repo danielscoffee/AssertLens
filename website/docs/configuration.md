@@ -4,7 +4,7 @@ description: Define explicit source scope and falsifiable assertions in .assertl
 ---
 
 Create `.assertlens.json` in the repository you want to review. The only accepted
-fields are `model`, `files`, and `assertions`.
+fields are `provider`, `model`, `files`, and `assertions`.
 
 The following example assumes those source and test files exist in your project:
 
@@ -42,7 +42,8 @@ your test suite. Prefer narrow, falsifiable claims over “this code is correct.
 
 | Field | Rules |
 | --- | --- |
-| `model` | Optional; defaults to `jev-1.13.0`. Must match `^jev-[a-z0-9.-]+$`. |
+| `provider` | Optional; `jev` (default), `laya`, `anthropic`, or `openai`. See [Providers](providers.md). |
+| `model` | Optional except for `openai`; defaults to the provider's model (`jev-1.13.0` for Jev). Jev models must match `^jev-[a-z0-9.-]+$`, Claude models `^claude-[a-z0-9.-]+$`. |
 | `files` | Array of 1–20 unique, literal repository-relative files or folders. Required unless every assertion sets its own `files`. |
 | `assertions` | Required object containing 1–20 named claims. Each is a string, or `{ "text", "files" }` with the same `files` rules. |
 
