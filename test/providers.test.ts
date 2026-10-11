@@ -77,9 +77,13 @@ test("endpoint overrides come from the invoker and stay on HTTPS or loopback", (
 		resolveEndpoint("openai", "https://openrouter.example/v1/chat/completions"),
 		"https://openrouter.example/v1/chat/completions",
 	);
+	assert.equal(
+		resolveEndpoint("anthropic", "https://api.commandcode.ai/provider/v1/messages"),
+		"https://api.commandcode.ai/provider/v1/messages",
+	);
 	for (const [provider, endpoint, error] of [
-		["jev", "https://evil.example/v1/systemone", /only supported for the laya and openai/],
-		["anthropic", "https://evil.example/v1/messages", /only supported/],
+		["jev", "https://evil.example/v1/systemone", /not supported for the jev provider/],
+		["anthropic", "http://proxy.example/v1/messages", /HTTPS, or HTTP on localhost/],
 		["openai", "http://evil.example/v1/chat/completions", /HTTPS, or HTTP on localhost/],
 		["openai", "https://user:pass@example.com/v1", /without credentials/],
 		["laya", "not a url", /absolute URL/],
@@ -174,6 +178,25 @@ test("LLM answers fail closed on refusal, truncation, or inconsistent probabilit
 		await assert.rejects(review(request, "key"), error);
 		stub.mock.restore();
 	}
+});
+
+test("gateways without structured output may wrap JSON in one fenced block", async (t) => {
+	const request = makeRequest({ provider: "anthropic", model: "claude-sonnet-5-5", assertions }, state());
+	const reply = (text: string) => ({
+		model: "claude-sonnet-5-5",
+		stop_reason: "end_turn",
+		content: [{ type: "text", text }],
+	});
+	let stub = t.mock.method(globalThis, "fetch", async () =>
+		Response.json(reply(`18 > 18 is false.\n\n\`\`\`json\n${JSON.stringify(answers())}\n\`\`\``)),
+	);
+	assert.equal((await review(request, "key")).findings[0].verdict, "contradicted");
+	stub.mock.restore();
+	stub = t.mock.method(globalThis, "fetch", async () =>
+		Response.json(reply("Contradicted: 18 > 18 is false.")),
+	);
+	await assert.rejects(review(request, "key"), /Malformed Claude JSON/);
+	stub.mock.restore();
 });
 
 test("ties go to the cautious option and low confidence needs review", async (t) => {

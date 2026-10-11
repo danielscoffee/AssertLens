@@ -93,9 +93,9 @@ test("dry-run prints the configured provider's exact request body", (t) => {
 	assert.equal(body.output_config.format.type, "json_schema");
 	assert.match(body.messages[0].content, /An 18-year-old is eligible/);
 	assert.match(result.stderr, /1 request\(s\) would go to https:\/\/api\.anthropic\.com\/v1\/messages/);
-	const rejected = run("--json", "--dry-run", "--endpoint", "https://evil.example/v1/messages");
+	const rejected = run("--json", "--dry-run", "--endpoint", "http://evil.example/v1/messages");
 	assert.equal(rejected.status, 2);
-	assert.match(JSON.parse(rejected.stdout).error, /only supported for the laya and openai/);
+	assert.match(JSON.parse(rejected.stdout).error, /HTTPS, or HTTP on localhost/);
 });
 
 test("snapshot dry-run reviews unchanged files without relaxing the default", (t) => {

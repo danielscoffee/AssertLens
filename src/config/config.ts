@@ -132,8 +132,8 @@ export function loadConfig(path: string): ReviewConfig {
 // reviewed repository cannot redirect source or keys. Loopback may use HTTP.
 export function resolveEndpoint(provider: Provider, override?: string): string {
 	if (override === undefined) return providers[provider].endpoint;
-	if (provider !== "laya" && provider !== "openai")
-		throw new Error("--endpoint is only supported for the laya and openai providers.");
+	if (provider === "jev")
+		throw new Error("--endpoint is not supported for the jev provider.");
 	let url: URL;
 	try {
 		url = new URL(override);

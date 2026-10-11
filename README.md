@@ -167,10 +167,10 @@ use another one:
 [Laya](https://github.com/NandhaKishorM/laya) speaks Jev's `/v1/systemone` format and
 can run locally, but its 512–1,024-token context fits only tiny scopes. Claude and
 OpenAI-compatible models return model-reported probabilities and a short rationale
-per assertion, which reports label as uncalibrated. `--endpoint` points `laya` or
-`openai` at a self-hosted or compatible server (HTTPS, or HTTP on `localhost`); it is
-an invoker option, never read from configuration, so a reviewed repository cannot
-redirect your source or key. See the [providers guide](website/docs/providers.md).
+per assertion, which reports label as uncalibrated. `--endpoint` points `laya`,
+`anthropic`, or `openai` at a self-hosted or compatible server (HTTPS, or HTTP on
+`localhost`); it is an invoker option, never read from configuration, so a reviewed
+repository cannot redirect your source or key. See the [providers guide](website/docs/providers.md).
 
 ## Assertions and scope
 

@@ -11,8 +11,8 @@ export const criteria = {
 
 export type Choice = keyof typeof criteria;
 
-// Endpoint, default model, and key variable per provider. Only Laya and
-// OpenAI-compatible endpoints may be overridden, for self-hosted servers.
+// Endpoint, default model, and key variable per provider. All but Jev accept an
+// invoker-supplied --endpoint for self-hosted or compatible servers.
 export const providers = {
 	jev: {
 		label: "Jev",

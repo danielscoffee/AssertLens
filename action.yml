@@ -31,7 +31,7 @@ inputs:
     description: Allow network access inside the command sandbox.
     default: "false"
   endpoint:
-    description: Self-hosted Laya or OpenAI-compatible endpoint (HTTPS, or HTTP on localhost).
+    description: Laya, Claude-compatible, or OpenAI-compatible endpoint (HTTPS, or HTTP on localhost).
     default: ""
 
 runs:

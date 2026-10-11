@@ -23,7 +23,7 @@ Usage: node src/assertlens.ts [options] [-- command args...]\n
   --snapshot          Allow review even when selected files match the base
   --check-only        Run the command without configuration or Jev review
   --sandbox-network   Allow network access inside the command sandbox
-  --endpoint URL      Self-hosted Laya or OpenAI-compatible endpoint (HTTPS or localhost)
+  --endpoint URL      Laya, Claude-compatible, or OpenAI-compatible endpoint (HTTPS or localhost)
   --no-sandbox        Run a trusted local command directly (incompatible with --head)
   --dry-run           Print outbound JSON; no API call or command execution
   --json              Emit machine-readable report instead of Markdown

@@ -66,11 +66,12 @@ node src/assertlens.ts --endpoint http://localhost:11434/v1/chat/completions --s
 
 ## Endpoints and keys
 
-`--endpoint` (or the action's `endpoint` input) is accepted only for `laya` and
-`openai`, must use HTTPS or HTTP on `localhost`, and cannot contain credentials. It
-comes from whoever runs the CLI, never from `.assertlens.json`, so a reviewed
-repository cannot redirect your source or API key. Jev and Claude always use their
-official endpoints.
+`--endpoint` (or the action's `endpoint` input) points `laya`, `anthropic`, or
+`openai` at a self-hosted or compatible server, such as a gateway that serves Claude
+models through the Messages API. It must use HTTPS or HTTP on `localhost` and cannot
+contain credentials. It comes from whoever runs the CLI, never from
+`.assertlens.json`, so a reviewed repository cannot redirect your source or API key.
+Jev always uses the TypeSafe endpoint.
 
 Each provider reads only its own key variable. All four keys, plus `GITHUB_TOKEN`
 and `GH_TOKEN`, are removed from check commands, and the Bubblewrap sandbox starts

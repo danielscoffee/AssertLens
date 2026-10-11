@@ -20,7 +20,7 @@ node src/assertlens.ts [options] [-- command args...]
 | `--snapshot` | Allow review even when selected files match the base. |
 | `--check-only` | Run the command without loading review configuration or calling Jev. |
 | `--sandbox-network` | Share host networking with a sandboxed command; disabled by default. |
-| `--endpoint URL` | Self-hosted Laya or OpenAI-compatible endpoint; HTTPS, or HTTP on `localhost`. See [Providers](providers.md). |
+| `--endpoint URL` | Laya, Claude-compatible, or OpenAI-compatible endpoint; HTTPS, or HTTP on `localhost`. Not for Jev. See [Providers](providers.md). |
 | `--no-sandbox` | Run a trusted local command directly; incompatible with `--head`. |
 | `--dry-run` | Print outbound JSON without an API call or command execution. Refuses commands. |
 | `--json` | Emit a machine-readable report instead of Markdown. |
